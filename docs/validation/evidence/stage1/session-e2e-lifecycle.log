@@ -1,0 +1,82 @@
+pocket.session: event=starting bus=unix:path=/tmp/dbus-kQTRJcN4pm,guid=33a3371cfd8a1dfc11b75ce66b03771f wayland=wayland-0
+pocket.session: event=started phoc=11566 core_supervisor=11565
+pocket.supervise: name=core event=supervisor.started pid=11565 max=5 window=60s
+pocket.supervise: name=core event=started pid=11568
+2026-11-22T23:13:35.196308Z  INFO pocketd: pocketd starting version="0.1.0" protocol=1.0 pid=11568
+2026-11-22T23:13:35.203468Z  INFO pocketd::service: state changed mode=handheld ready=true revision=2
+2026-11-22T23:13:35.203742Z  INFO pocketd: pocketd ready name="org.pocketos.Core1" path="/org/pocketos/Core1" unique=Some(":1.0")
+pocket.supervise: name=shell event=supervisor.started pid=11584 max=5 window=60s
+pocket.supervise: name=shell event=started pid=11586
+  INFO pocket.shell.diag: event=core.mode mode=handheld revision=2
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.0 connections=1 error=-
+  INFO pocket.shell.diag: event=shell.started runtime=Quickshell size=360x780 landscape=false
+2026-11-22T23:13:41.591170Z  INFO pocketd::service: RequestMode sender=:1.4 requested=handheld
+2026-11-22T23:13:41.603565Z  INFO pocketd::service: RequestMode sender=:1.5 requested=dock
+2026-11-22T23:13:41.603643Z  INFO pocketd::service: mode changed from=handheld to=dock
+2026-11-22T23:13:41.603768Z  INFO pocketd::service: state changed mode=dock ready=true revision=3
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+2026-11-22T23:13:42.945651Z  WARN pocketd::service: rejected RequestMode: invalid mode sender=:1.6 requested="desktop"
+2026-11-22T23:13:42.987324Z  INFO pocketd: pocketd stopping signal="SIGTERM"
+2026-11-22T23:13:42.989598Z  INFO pocketd: bus name released name="org.pocketos.Core1"
+  INFO pocket.shell.diag: event=core.status status=disconnected owner=- connections=1 error=-
+2026-11-22T23:13:42.991819Z  INFO pocketd: pocketd stopped
+pocket.supervise: name=core event=exited pid=11568 status=0 reason=stop-requested
+pocket.supervise: name=core event=started pid=11662
+2026-11-22T23:13:44.859442Z  INFO pocketd: pocketd starting version="0.1.0" protocol=1.0 pid=11662
+2026-11-22T23:13:44.865019Z  INFO pocketd::service: state changed mode=handheld ready=true revision=2
+2026-11-22T23:13:44.865348Z  INFO pocketd: pocketd ready name="org.pocketos.Core1" path="/org/pocketos/Core1" unique=Some(":1.9")
+  INFO pocket.shell.diag: event=core.status status=connecting owner=:1.9 connections=1 error=-
+  INFO pocket.shell.diag: event=core.mode mode=handheld revision=2
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.9 connections=2 error=-
+2026-11-22T23:13:46.259306Z  INFO pocketd::service: RequestMode sender=:1.10 requested=dock
+2026-11-22T23:13:46.259384Z  INFO pocketd::service: mode changed from=handheld to=dock
+2026-11-22T23:13:46.259486Z  INFO pocketd::service: state changed mode=dock ready=true revision=3
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+  INFO pocket.shell.diag: event=core.status status=disconnected owner=- connections=2 error=-
+pocket.supervise: name=core event=exited pid=11662 signal=ABRT reason=unexpected failures=1/5 window=60s
+pocket.supervise: name=core event=started pid=11724
+2026-11-22T23:13:47.314432Z  INFO pocketd: pocketd starting version="0.1.0" protocol=1.0 pid=11724
+2026-11-22T23:13:47.319107Z  INFO pocketd::service: state changed mode=handheld ready=true revision=2
+2026-11-22T23:13:47.319323Z  INFO pocketd: pocketd ready name="org.pocketos.Core1" path="/org/pocketos/Core1" unique=Some(":1.11")
+  INFO pocket.shell.diag: event=core.status status=connecting owner=:1.11 connections=2 error=-
+  INFO pocket.shell.diag: event=core.mode mode=handheld revision=2
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.11 connections=3 error=-
+2026-11-22T23:13:47.439614Z  INFO pocketd::service: RequestMode sender=:1.12 requested=dock
+2026-11-22T23:13:47.439728Z  INFO pocketd::service: mode changed from=handheld to=dock
+2026-11-22T23:13:47.439833Z  INFO pocketd::service: state changed mode=dock ready=true revision=3
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+pocket.supervise: name=shell event=exited pid=11586 signal=SEGV reason=unexpected failures=1/5 window=60s
+pocket.supervise: name=shell event=started pid=11791
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.11 connections=1 error=-
+  INFO pocket.shell.diag: event=shell.started runtime=Quickshell size=360x780 landscape=false
+pocket.supervise: name=shell event=exited pid=11791 signal=TERM reason=restart-requested
+pocket.supervise: name=shell event=started pid=11857
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.11 connections=1 error=-
+pocket.supervise: name=shell event=exited pid=11857 signal=SEGV reason=unexpected failures=2/5 window=60s
+pocket.supervise: name=shell event=started pid=11962
+pocket.supervise: name=shell event=exited pid=11962 signal=SEGV reason=unexpected failures=3/5 window=60s
+pocket.supervise: name=shell event=started pid=12060
+pocket.supervise: name=shell event=exited pid=12060 signal=SEGV reason=unexpected failures=4/5 window=60s
+pocket.supervise: name=shell event=started pid=12186
+pocket.supervise: name=shell event=exited pid=12186 signal=SEGV reason=unexpected failures=5/5 window=60s
+pocket.supervise: name=shell event=gave-up failures=5 last="signal=SEGV" hint="pocket-ctl start shell"
+pocket.supervise: name=shell event=started pid=12225
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+  INFO pocket.shell.diag: event=core.status status=connected owner=:1.11 connections=1 error=-
+2026-11-22T23:14:06.142678Z  INFO pocketd::service: RequestMode sender=:1.19 requested=handheld
+2026-11-22T23:14:06.142764Z  INFO pocketd::service: mode changed from=dock to=handheld
+2026-11-22T23:14:06.142883Z  INFO pocketd::service: state changed mode=handheld ready=true revision=4
+  INFO pocket.shell.diag: event=shell.started runtime=Quickshell size=360x780 landscape=false
+  INFO pocket.shell.diag: event=core.mode mode=handheld revision=4
+pocket.session: event=stopping reason=signal
+2026-11-22T23:14:13.332548Z  INFO pocketd: pocketd stopping signal="SIGTERM"
+2026-11-22T23:14:13.332711Z  WARN pocketd: cannot release bus name error=I/O error: failed to receive message
+2026-11-22T23:14:13.333104Z  INFO pocketd: pocketd stopped
+pocket.supervise: name=core event=exited pid=11724 status=0 reason=supervisor-stop
+pocket.supervise: name=core event=supervisor.stopped
+pocket.supervise: name=shell event=exited pid=12225 signal=TERM reason=supervisor-stop
+pocket.supervise: name=shell event=supervisor.stopped
+pocket.session: event=phoc.exited status=0
+pocket.session: event=stopped

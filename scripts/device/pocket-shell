@@ -1,6 +1,8 @@
 #!/bin/sh
-# Session client (started by Phoc via -E): Pocket Shell on the Quickshell runtime.
-# If this process exits, Phoc exits and the session ends.
+# Pocket Shell on the Quickshell runtime. Started (and restarted) by
+# `pocket-supervise shell`, which Phoc runs via -E; Phoc no longer exits with the shell.
 base="$HOME/pocket-os"
 export QT_QPA_PLATFORM=wayland
+# Pocket.Core QML module (QtDBus bridge to pocketd), built by scripts/build.sh bridge.
+export QML_IMPORT_PATH="$base/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 exec "$base/opt/quickshell/bin/quickshell" -p "$base/shell/shell.qml"

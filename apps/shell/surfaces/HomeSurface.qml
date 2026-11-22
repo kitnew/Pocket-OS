@@ -1,9 +1,9 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import "../features/stage0"
+import "../features/devpanel"
 
-// Full-screen wlr-layer-shell surface hosting the Stage 0 panel.
+// Full-screen wlr-layer-shell surface hosting the Stage 1 development panel.
 // This file (and shell.qml) are the only Quickshell-specific parts of the shell.
 PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
@@ -12,7 +12,7 @@ PanelWindow {
     WlrLayershell.namespace: "pocket-home"
     color: "transparent"
 
-    Stage0Panel {
+    DevPanel {
         anchors.fill: parent
         runtimeName: "Quickshell"
     }

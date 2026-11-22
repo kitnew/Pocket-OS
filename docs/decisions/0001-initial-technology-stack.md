@@ -1,6 +1,9 @@
 # ADR-0001: Initial technology stack
 
-- Status: **Accepted** (Stage 0 evidence; revisit at the end of Stage 1)
+- Status: **Accepted**. Stage 0 evidence; reconfirmed at the end of Stage 1. Follow-ups:
+  IPC implemented in [ADR-0002](0002-pocket-core-and-ipc.md); `-E` coupling and the
+  power key (risks 3 and 4) resolved in [ADR-0003](0003-graphical-session-lifecycle.md)
+  and `docs/validation/stage1.md`
 - Date: 2026-11-22
 - Evidence: `docs/validation/stage0.md`
 
@@ -22,7 +25,7 @@ each layer on the real device before we commit to it.
 | UI toolkit | **Qt 6.12 / Qt Quick / QML** (packaged) | RHI OpenGL ES on FD512, vsynced 60 fps, touch works |
 | Shell runtime | **Quickshell 0.3.2, built from source on the device** | Layer-shell surface, touch, rotation re-layout and restart all work |
 | Core language | **Rust** (stable; Cargo workspace) | `pocket-ipc` and `pocket-core` build, lint and test on the host |
-| IPC | **D-Bus session bus** (direction; not implemented yet) | A per-session bus is started by `dbus-run-session`, and Quickshell connects to it |
+| IPC | **D-Bus session bus** (implemented in Stage 1, ADR-0002) | A per-session bus is started by `dbus-run-session`, and Quickshell connects to it |
 
 ## Rationale
 

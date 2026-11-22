@@ -15,6 +15,7 @@ Rectangle {
     radius: Theme.radius
     color: tap.pressed ? Theme.surfaceActive : (checked ? Theme.accent : Theme.surface)
     scale: tap.pressed ? 0.96 : 1.0
+    opacity: enabled ? 1.0 : 0.4   // disabled items receive no pointer events
 
     Behavior on color { ColorAnimation { duration: 90 } }
     Behavior on scale { NumberAnimation { duration: 90 } }

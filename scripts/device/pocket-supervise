@@ -1,0 +1,106 @@
+#!/bin/sh
+# pocket-supervise NAME COMMAND [ARGS...]
+#
+# Keeps one session component running and restarts it when it exits, with a limit:
+# POCKET_RESTART_MAX (5) unrequested exits within any POCKET_RESTART_WINDOW (60 s, sliding)
+# and it gives up, keeping the diagnostic tail of the session log, and waits for
+# `pocket-ctl start NAME`. Restart delay grows with consecutive failures (1 s, 2 s, ...).
+# Times use /proc/uptime, so wall-clock jumps (no RTC on lavender) do not matter.
+#
+# Control files in $XDG_RUNTIME_DIR/pocket-os (written by pocket-ctl):
+#   NAME.pid             current child pid           NAME.supervisor.pid  this process
+#   NAME.restart         next exit is requested (not counted as a failure)
+#   NAME.hold            do not (re)start until removed + SIGUSR1
+#   NAME.failed          gave up; same as hold, written by this script
+# SIGTERM/SIGINT/SIGHUP: stop the child and exit. SIGUSR1: re-check hold/failed now.
+name="${1:?usage: pocket-supervise NAME COMMAND [ARGS...]}"
+shift
+run="${XDG_RUNTIME_DIR:?}/pocket-os"
+max="${POCKET_RESTART_MAX:-5}"
+window="${POCKET_RESTART_WINDOW:-60}"
+mkdir -p "$run"
+log() { echo "pocket.supervise: name=$name $*"; }
+now() { cut -d. -f1 /proc/uptime; }
+
+child=
+sleeper=
+stopping=
+interrupt() { [ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; }
+trap 'stopping=1; interrupt; [ -n "$child" ] && kill -TERM "$child" 2>/dev/null' TERM INT HUP
+trap 'interrupt' USR1
+
+# Interruptible sleep (SIGUSR1/SIGTERM end it early).
+pause() {
+	sleep "$1" &
+	sleeper=$!
+	wait "$sleeper"
+	sleeper=
+}
+
+describe() { # exit status -> "status=N" or "signal=NAME"
+	if [ "$1" -gt 128 ]; then
+		echo "signal=$(kill -l $(($1 - 128)) 2>/dev/null || echo $(($1 - 128)))"
+	else
+		echo "status=$1"
+	fi
+}
+
+echo $$ >"$run/$name.supervisor.pid"
+history= # uptimes of recent unexpected exits
+log "event=supervisor.started pid=$$ max=$max window=${window}s"
+
+while [ -z "$stopping" ]; do
+	if [ -e "$run/$name.hold" ] || [ -e "$run/$name.failed" ]; then
+		pause 86400
+		continue
+	fi
+
+	"$@" &
+	child=$!
+	echo "$child" >"$run/$name.pid"
+	log "event=started pid=$child"
+	wait "$child"
+	status=$?
+	while kill -0 "$child" 2>/dev/null; do # woken by a trapped signal, not by the exit
+		wait "$child"
+		status=$?
+	done
+	rm -f "$run/$name.pid"
+	how=$(describe "$status")
+	pid=$child
+	child=
+
+	if [ -n "$stopping" ]; then
+		log "event=exited pid=$pid $how reason=supervisor-stop"
+		break
+	elif [ -e "$run/$name.restart" ]; then
+		rm -f "$run/$name.restart"
+		log "event=exited pid=$pid $how reason=restart-requested"
+		continue
+	elif [ -e "$run/$name.hold" ]; then
+		log "event=exited pid=$pid $how reason=stop-requested"
+		continue
+	fi
+
+	# Sliding window: keep the uptimes of unexpected exits within the last $window s.
+	t=$(now)
+	recent=
+	for f in $history; do
+		[ $((t - f)) -lt "$window" ] && recent="$recent $f"
+	done
+	history="$recent $t"
+	failures=$(echo $history | wc -w)
+	log "event=exited pid=$pid $how reason=unexpected failures=$failures/$max window=${window}s"
+	if [ "$failures" -ge "$max" ]; then
+		echo "gave up at uptime $t after $failures exits in ${window}s; last: $how" >"$run/$name.failed"
+		if [ -n "${POCKET_STATE_DIR:-}" ] && [ -f "$POCKET_STATE_DIR/session.log" ]; then
+			tail -n 300 "$POCKET_STATE_DIR/session.log" >"$POCKET_STATE_DIR/$name-gave-up.log"
+		fi
+		log "event=gave-up failures=$failures last=\"$how\" hint=\"pocket-ctl start $name\""
+		history=
+		continue
+	fi
+	pause "$failures"
+done
+rm -f "$run/$name.supervisor.pid"
+log "event=supervisor.stopped"

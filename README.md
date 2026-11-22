@@ -6,10 +6,13 @@ the phone into a configurable desktop control surface. It runs on top of an ordi
 postmarketOS/Alpine system and standard Linux services. It is not a new distribution and
 does not include a custom compositor.
 
-**Status: Stage 0 (hardware & runtime validation) complete.** A minimal interactive
-shell prototype runs on the physical device under Phoc. No user-facing features (home,
-launcher, settings, notifications, Dock Mode) exist yet. See
-[`docs/validation/stage0.md`](docs/validation/stage0.md) for the evidence.
+**Status: Stage 1 (core foundation & runtime) complete.** A Rust core daemon (`pocketd`)
+owns shell state on the D-Bus session bus (`org.pocketos.Core1`). The Quickshell UI
+mirrors it through a small QtDBus QML module and switches the logical mode with a
+touchscreen button. Shell, core and compositor restart independently under a supervised
+session. No user-facing features (home, launcher, settings, notifications, Dock Mode UI)
+exist yet. Evidence: [`docs/validation/stage1.md`](docs/validation/stage1.md)
+([Stage 0](docs/validation/stage0.md)).
 
 ## Target device
 
@@ -25,53 +28,63 @@ Details: [`docs/hardware/lavender.md`](docs/hardware/lavender.md).
 ## Architecture
 
 ```
-Pocket Shell (QML, Quickshell)  ──D-Bus (planned)──  Pocket Core (Rust)
-            │ Wayland (layer-shell)                         │ adapters (planned)
-          Phoc (wlroots compositor)              NetworkManager, UPower, BlueZ, elogind…
+Pocket Shell (QML on Quickshell) ── Pocket.Core (QtDBus) ──D-Bus session bus──  pocketd (Rust, zbus)
+            │ Wayland (layer-shell)                         org.pocketos.Core1   └ pocket-core (state, modes)
+          Phoc (wlroots compositor)                                              adapters (planned)
             │ DRM/KMS, libinput via logind
-   postmarketOS / Alpine, OpenRC, Linux
+   postmarketOS / Alpine, OpenRC, elogind, Linux
 ```
 
 - **Pocket Core** (Rust) owns state and policy and never depends on Qt, QML, Quickshell
-  or Phoc.
-- **Pocket Shell** (Qt Quick) is only UI. It must not run shell commands for system
+  or Phoc. Clients send requests and mirror state from `StateChanged` signals.
+- **Pocket Shell** (Qt Quick) is only UI. It does not run shell commands for system
   control. System actions go through the core.
 - **Phoc** does composition, input, output transforms and scaling through standard
   Wayland protocols.
+- **Session**: `pocket-session` (OpenRC, manual) → private bus → session root running
+  `pocketd` and Phoc under small supervisors with restart limits.
 
-Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and
-[`docs/decisions/0001-initial-technology-stack.md`](docs/decisions/0001-initial-technology-stack.md).
+Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and the decisions:
+[ADR-0001 stack](docs/decisions/0001-initial-technology-stack.md),
+[ADR-0002 core & IPC](docs/decisions/0002-pocket-core-and-ipc.md),
+[ADR-0003 session lifecycle](docs/decisions/0003-graphical-session-lifecycle.md).
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
 | `apps/shell/` | QML shell. `shell.qml` and `surfaces/` are specific to Quickshell. `components/`, `features/` and `theme/` are plain Qt Quick |
-| `crates/pocket-ipc/` | Versioned IPC contract types (`Mode`, `ProtocolVersion`) |
-| `crates/pocket-core/` | Framework-independent core state (mode state machine) |
+| `bridge/pocket-core-qml/` | `Pocket.Core` QML module: `CoreClient`, a QtDBus client of the core (+ integration test) |
+| `crates/pocket-ipc/` | IPC contract: D-Bus names, protocol version, `Mode`, state keys |
+| `crates/pocket-core/` | Framework-independent state manager (modes, validation, events, revision) |
+| `crates/pocketd/` | Core daemon on the session bus (zbus) + black-box D-Bus contract test |
 | `config/phoc.ini` | Phoc configuration for the device (scale 3) |
-| `packaging/openrc/` | `pocket-session` OpenRC service (started by hand, not enabled at boot) |
-| `scripts/` | Host dev tools: deploy, session control, logs, inspection, checks, Quickshell build, device proxy |
-| `scripts/device/` | Session launchers installed to `~/pocket-os/bin` on the device |
-| `tests/device/` | On-device validation scenes |
+| `packaging/` | OpenRC `pocket-session` service (manual), elogind power-key drop-in, scoped sudoers rule |
+| `scripts/` | Host dev tools: build, deploy, session control, logs, tests, checks, Quickshell build, device proxy |
+| `scripts/device/` | Session root, supervisor, `pocket-ctl`, shell launcher (installed to `~/pocket-os/bin`) |
+| `tests/device/` | On-device tests: session lifecycle e2e, Stage 0 touch scene |
 | `docs/` | Architecture, decisions (ADRs), hardware, development, validation |
 
 ## Requirements
 
-- Host: Linux with `ssh`, `git`, `python3`, `curl`, and Rust stable (`rustup`). Tested on Fedora.
+- Host: Linux with `ssh`, `git`, `python3`, `curl`, `dbus-daemon`, and Rust stable
+  (`rustup`). Tested on Fedora.
 - Device: postmarketOS edge on xiaomi-lavender, reachable by key-based `ssh lavender`
   over USB networking.
 - Device packages and a one-time Quickshell build. See
   [`docs/development/README.md`](docs/development/README.md).
 
-## Build and run the Stage 0 prototype
+## Build and run
 
 ```sh
-scripts/check.sh                 # host: Rust fmt/clippy/tests, script syntax
+scripts/check.sh                 # host: fmt, clippy, unit + D-Bus contract tests, shellcheck
 scripts/quickshell-build.sh      # once, and after every Qt upgrade on the device
-scripts/deploy.sh --system       # first time: also installs the OpenRC service
-scripts/session.sh start         # Phoc + Pocket Shell on tty7 (asks for sudo)
-scripts/logs.sh                  # fetch logs and print shell diagnostic events
+scripts/build.sh                 # pocketd (host cross-build) + QML bridge (built on device)
+scripts/deploy.sh --system       # first time: service, power-key policy, sudoers rule
+scripts/session.sh start         # Phoc + pocketd + Pocket Shell on tty7
+scripts/session.sh shell restart # restart only the shell (core: scripts/session.sh core restart)
+scripts/e2e.sh                   # lifecycle e2e on the running session
+scripts/logs.sh                  # fetch logs, print events
 scripts/session.sh stop          # back to the tty1 console
 ```
 
@@ -81,12 +94,11 @@ scripts/session.sh stop          # back to the tty1 console
   be rebuilt after every Qt upgrade (it uses private Qt APIs).
 - The device has no internet over USB. Package installs go through the host proxy
   (`scripts/device-online.sh`).
-- A short press of the power key powers the phone off (elogind default). Pocket does not
-  take a power-key inhibitor yet.
-- Physical auto-rotation is not implemented. Landscape was tested only through a manual
-  output transform.
-- Nothing starts at boot. Session control needs `sudo` on the device.
-- Pocket Core is a library skeleton. There is no daemon or IPC transport yet.
+- Core state is in memory. A core restart resets the mode to `handheld`.
+- A Phoc crash ends the session. Nothing starts at boot (by design during development).
+- The power key short press is ignored (development policy). There is no lock screen.
+- Physical auto-rotation is not implemented. Landscape works through a manual output
+  transform.
 
 ## License
 

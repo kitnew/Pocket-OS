@@ -1,0 +1,20 @@
+[package]
+name = "pocketd"
+description = "Pocket OS core daemon: serves pocket-core on the D-Bus session bus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+pocket-core = { path = "../pocket-core" }
+pocket-ipc = { path = "../pocket-ipc" }
+tokio = { version = "1.54", features = ["rt", "macros", "signal", "time"] }
+futures-util = { version = "0.3", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+zbus = { version = "6.5", default-features = false, features = ["tokio", "proxy", "service", "tracing"] }
+
+[lints]
+workspace = true

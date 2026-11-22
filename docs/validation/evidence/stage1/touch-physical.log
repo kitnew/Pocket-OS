@@ -1,0 +1,26 @@
+# Physical touchscreen taps by a person on the Redmi Note 7 (session.log excerpts, ANSI stripped).
+# Run 1: 2026-11-22, before reboot (boot id a2af2c23-…). Two taps on the button, then a short power-key press.
+  INFO pocket.shell.diag: event=button.activated request=dock x=125 y=49 device=touchscreen
+2026-11-22T22:55:57.040115Z  INFO pocketd::service: RequestMode sender=:1.3 requested=dock
+2026-11-22T22:55:57.040194Z  INFO pocketd::service: mode changed from=handheld to=dock
+2026-11-22T22:55:57.040322Z  INFO pocketd::service: state changed mode=dock ready=true revision=5
+  INFO pocket.core.client: state changed mode=dock revision=5
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=5
+  INFO pocket.shell.diag: event=core.request mode=dock ok=true error=-
+  INFO pocket.shell.diag: event=button.activated request=handheld x=141 y=45 device=touchscreen
+2026-11-22T22:56:06.400628Z  INFO pocketd::service: RequestMode sender=:1.3 requested=handheld
+2026-11-22T22:56:06.400911Z  INFO pocketd::service: mode changed from=dock to=handheld
+2026-11-22T22:56:06.401037Z  INFO pocketd::service: state changed mode=handheld ready=true revision=6
+  INFO pocket.core.client: state changed mode=handheld revision=6
+  INFO pocket.shell.diag: event=core.mode mode=handheld revision=6
+  INFO pocket.shell.diag: event=core.request mode=handheld ok=true error=-
+# logread, same boot (device stayed up: "up 26 min" afterwards):
+[Nov 22 23:56:14] auth elogind-daemon[3982]: Power key pressed short.
+
+# Run 2: after the controlled reboot (boot id 0f7bfe9a-…), session started over SSH, one tap.
+  INFO pocket.shell.diag: event=button.activated request=dock x=119 y=64 device=touchscreen
+2026-11-22T23:01:45.052248Z  INFO pocketd::service: RequestMode sender=:1.3 requested=dock
+2026-11-22T23:01:45.052493Z  INFO pocketd::service: state changed mode=dock ready=true revision=3
+  INFO pocket.core.client: state changed mode=dock revision=3
+  INFO pocket.shell.diag: event=core.mode mode=dock revision=3
+  INFO pocket.shell.diag: event=core.request mode=dock ok=true error=-

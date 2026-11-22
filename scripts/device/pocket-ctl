@@ -1,0 +1,88 @@
+#!/bin/sh
+# Control the components of a running Pocket session (as the session user, e.g. over SSH).
+#   pocket-ctl status                 session, supervisors, components, core state
+#   pocket-ctl restart core|shell     restart one component (not counted as a failure)
+#   pocket-ctl stop core|shell        stop and hold it stopped
+#   pocket-ctl start core|shell       release a hold / a gave-up state and start it
+#   pocket-ctl kill core|shell SIG    send SIG to the component (fault injection: SEGV, KILL…)
+#   pocket-ctl env                    print the session environment (DBus/Wayland) to source
+#   pocket-ctl core METHOD [ARGS]     call org.pocketos.Core1.METHOD (dbus-send; for tests)
+# Session start/stop itself is the OpenRC service: sudo rc-service pocket-session start|stop
+set -eu
+run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pocket-os"
+
+need_session() {
+	[ -f "$run/env" ] || { echo "no Pocket session running" >&2; exit 1; }
+}
+component() {
+	case "${1:-}" in
+	core | shell) ;;
+	*) echo "component must be core or shell" >&2; exit 2 ;;
+	esac
+}
+pid_of() { cat "$run/$1.pid" 2>/dev/null || true; }
+wake() { kill -USR1 "$(cat "$run/$1.supervisor.pid")"; }
+
+case "${1:-}" in
+status)
+	need_session
+	echo "session pid $(cat "$run/session.pid")  $(grep -o "WAYLAND_DISPLAY='[^']*'" "$run/env")"
+	for c in core shell; do
+		state=running
+		[ -e "$run/$c.hold" ] && state=held
+		[ -e "$run/$c.failed" ] && state="gave-up ($(cat "$run/$c.failed"))"
+		p=$(pid_of $c)
+		[ -z "$p" ] && [ "$state" = running ] && state=restarting
+		printf '%-6s %-10s pid=%s supervisor=%s\n' "$c" "$state" "${p:--}" "$(cat "$run/$c.supervisor.pid" 2>/dev/null || echo -)"
+	done
+	. "$run/env"
+	dbus-send --session --print-reply=literal --dest=org.pocketos.Core1 /org/pocketos/Core1 \
+		org.pocketos.Core1.GetState 2>&1 | tr -s ' \n' ' ' | sed 's/^/core state: /'
+	echo
+	;;
+restart)
+	need_session; component "${2:-}"
+	p=$(pid_of "$2")
+	rm -f "$run/$2.hold" "$run/$2.failed"
+	if [ -n "$p" ]; then
+		touch "$run/$2.restart"
+		kill -TERM "$p"
+	else
+		wake "$2"
+	fi
+	;;
+stop)
+	need_session; component "${2:-}"
+	touch "$run/$2.hold"
+	p=$(pid_of "$2")
+	[ -n "$p" ] && kill -TERM "$p"
+	;;
+start)
+	need_session; component "${2:-}"
+	rm -f "$run/$2.hold" "$run/$2.failed"
+	wake "$2"
+	;;
+kill)
+	need_session; component "${2:-}"
+	p=$(pid_of "$2")
+	[ -n "$p" ] || { echo "$2 is not running" >&2; exit 1; }
+	kill -s "${3:?signal required}" "$p"
+	;;
+env)
+	need_session
+	cat "$run/env"
+	;;
+core)
+	need_session
+	shift
+	m="${1:?method required}"
+	shift
+	. "$run/env"
+	exec dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1 \
+		"org.pocketos.Core1.$m" "$@"
+	;;
+*)
+	sed -n '2,10s/^# \{0,1\}//p' "$0" >&2
+	exit 2
+	;;
+esac

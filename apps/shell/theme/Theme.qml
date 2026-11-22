@@ -8,6 +8,8 @@ QtObject {
     readonly property color surface: "#1b2027"
     readonly property color surfaceActive: "#2f81f7"
     readonly property color accent: "#3fb950"
+    readonly property color warning: "#d29922"
+    readonly property color danger: "#f85149"
     readonly property color text: "#e6edf3"
     readonly property color textMuted: "#8b949e"
 

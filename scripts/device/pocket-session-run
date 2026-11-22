@@ -1,0 +1,57 @@
+#!/bin/sh
+# Session supervisor root. Runs inside dbus-run-session as the session user:
+#
+#   pocket-session-run
+#   ├── pocket-supervise core  pocketd            (Core: independent of Phoc and the shell)
+#   └── phoc -E "pocket-supervise shell pocket-shell"
+#                            └── quickshell        (Shell: restarted without restarting Phoc)
+#
+# The session lasts as long as Phoc. On SIGTERM/SIGINT/SIGHUP (session stop), or when
+# Phoc exits, everything is stopped and this script exits; dbus-run-session then ends the
+# bus. Runtime control files live in $XDG_RUNTIME_DIR/pocket-os (see pocket-ctl).
+base="$HOME/pocket-os"
+run="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR not set}/pocket-os"
+sock="${POCKET_WAYLAND_SOCKET:-wayland-0}"
+client="${POCKET_CLIENT:-$base/bin/pocket-shell}"
+log() { echo "pocket.session: $*"; }
+
+rm -rf "$run"
+mkdir -p "$run"
+echo $$ >"$run/session.pid"
+# Environment for tools attaching from SSH: `. $XDG_RUNTIME_DIR/pocket-os/env`.
+cat >"$run/env" <<EOF
+export DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS'
+export WAYLAND_DISPLAY='$sock'
+EOF
+
+phoc_pid=
+core_sup=
+stopping=
+stop_all() {
+	stopping=1
+	[ -n "$phoc_pid" ] && kill -TERM "$phoc_pid" 2>/dev/null
+	[ -n "$core_sup" ] && kill -TERM "$core_sup" 2>/dev/null
+}
+trap 'log "event=stopping reason=signal"; stop_all' TERM INT HUP
+
+log "event=starting bus=$DBUS_SESSION_BUS_ADDRESS wayland=$sock"
+"$base/bin/pocket-supervise" core "$base/bin/pocketd" &
+core_sup=$!
+# shellcheck disable=SC2086 # POCKET_PHOC_VERBOSE is a flag
+phoc ${POCKET_PHOC_VERBOSE:+-v} --socket "$sock" -C "$base/config/phoc.ini" \
+	-E "$base/bin/pocket-supervise shell $client" &
+phoc_pid=$!
+log "event=started phoc=$phoc_pid core_supervisor=$core_sup"
+
+# `wait` returns early when a trapped signal arrives; keep waiting until Phoc is gone.
+wait "$phoc_pid"
+status=$?
+while kill -0 "$phoc_pid" 2>/dev/null; do
+	wait "$phoc_pid"
+	status=$?
+done
+log "event=phoc.exited status=$status"
+[ -z "$stopping" ] && stop_all
+while kill -0 "$core_sup" 2>/dev/null; do wait "$core_sup"; done
+rm -rf "$run"
+log "event=stopped"

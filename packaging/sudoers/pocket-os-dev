@@ -1,0 +1,5 @@
+# Installed by Pocket OS (scripts/device-setup.sh) to /etc/sudoers.d/pocket-os-dev.
+# Lets the development user start/stop the manual graphical session without a password.
+# Grants nothing else: the init script is root-owned and runs the session as the user.
+# POCKET_USER is substituted at install time.
+POCKET_USER ALL=(root) NOPASSWD: /usr/sbin/rc-service pocket-session start, /usr/sbin/rc-service pocket-session stop, /usr/sbin/rc-service pocket-session restart, /usr/sbin/rc-service pocket-session status
