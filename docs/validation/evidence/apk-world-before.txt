@@ -1,0 +1,12 @@
+alpine-baselayout
+apk-tools
+busybox
+device-xiaomi-lavender
+device-xiaomi-lavender-kernel-tianma
+musl-utils
+postmarketos-base
+postmarketos-base-nofde
+postmarketos-base-ui-audio-backend-pulseaudio
+postmarketos-mkinitfs
+postmarketos-ui-console
+tzdata

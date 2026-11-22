@@ -1,0 +1,25 @@
+pocket-session: start 2026-11-22 23:16:31 session=c136 seat=seat0 vt=7 runtime=/run/user/10000
+Running compositor on wayland display 'wayland-0'
+
+(phoc:15515): GnomeDesktop-WARNING **: 23:16:32.507: Failed to load '/usr/share/xml/iso-codes/iso_639.xml': Failed to open file “/usr/share/xml/iso-codes/iso_639.xml”: No such file or directory
+
+
+(phoc:15515): GnomeDesktop-WARNING **: 23:16:32.507: Failed to load '/usr/share/xml/iso-codes/iso_639_3.xml': Failed to open file “/usr/share/xml/iso-codes/iso_639_3.xml”: No such file or directory
+
+
+(phoc:15515): GnomeDesktop-WARNING **: 23:16:32.507: Failed to load '/usr/share/xml/iso-codes/iso_3166.xml': Failed to open file “/usr/share/xml/iso-codes/iso_3166.xml”: No such file or directory
+
+
+(phoc:15515): phoc-cutouts-overlay-WARNING **: 23:16:33.063: No panel found for compatibles
+phoc-output-Message: 23:16:33.063: Output 'DSI-1' added ('(null)'/'(null)'/'(null)'), 67mm x 145mm
+  INFO: Launching config: "/home/nikita/pocket-os/shell/shell.qml"
+  INFO: Shell ID: "30858fec2cadcb20ee22d6a945f15ee5" Path ID "30858fec2cadcb20ee22d6a945f15ee5"
+  INFO: Saving logs to "/run/user/10000/quickshell/by-id/kzbljcxot/log.qslog"
+  INFO: Configuration Loaded
+  WARN qt.qpa.services: Failed to register with host portal QDBusError("org.freedesktop.DBus.Error.ServiceUnknown", "The name org.freedesktop.portal.Desktop was not provided by any .service files")
+  INFO pocket.shell.diag: event=shell.started runtime=Quickshell size=360x780 landscape=false
+  INFO pocket.shell.diag: event=button.activated count=1 x=121 y=41 device=touchscreen
+  INFO pocket.shell.diag: event=button.activated count=2 x=120 y=46 device=touchscreen
+  INFO pocket.shell.diag: event=layout.orientation landscape=true size=780x360
+  INFO pocket.shell.diag: event=button.activated count=3 x=138 y=31 device=touchscreen
+  INFO pocket.shell.diag: event=layout.orientation landscape=false size=360x360

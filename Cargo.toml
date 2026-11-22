@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/pocket-ipc", "crates/pocket-core"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/kitnew/Pocket-OS"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

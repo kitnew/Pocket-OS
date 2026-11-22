@@ -1,0 +1,68 @@
+#!/sbin/openrc-run
+# Pocket OS development session: Phoc + Pocket Shell on a dedicated VT.
+#
+# Deliberately NOT added to any runlevel (no graphical autostart).
+# Start/stop manually:   rc-service pocket-session start|stop|restart
+#
+# The session is a real elogind seat0 session: `su -l` runs the PAM stack
+# (pam_elogind) with PAM_TTY=ttyN, so the compositor gets DRM/input through
+# logind (libseat) instead of relaxed device permissions.
+
+description="Pocket OS development session (Phoc + Pocket Shell)"
+
+: "${POCKET_USER:=}"
+: "${POCKET_VT:=7}"
+: "${POCKET_RETURN_VT:=1}"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+	need dbus localmount
+	after networkmanager sshd
+}
+
+_resolve() {
+	if [ -z "$POCKET_USER" ]; then
+		eerror "POCKET_USER is not set (see /etc/conf.d/${RC_SVCNAME})"
+		return 1
+	fi
+	_home="$(getent passwd "$POCKET_USER" | cut -d: -f6)"
+	_session="${POCKET_SESSION:-$_home/pocket-os/bin/pocket-session}"
+	if [ ! -x "$_session" ]; then
+		eerror "$_session not found; deploy with scripts/deploy.sh"
+		return 1
+	fi
+}
+
+# Session id of the logind session on our VT, if any.
+_session_id() {
+	loginctl list-sessions --no-legend 2>/dev/null |
+		awk -v t="tty$POCKET_VT" '$NF == t || $5 == t { print $1; exit }'
+}
+
+start() {
+	_resolve || return 1
+	ebegin "Starting Pocket session for $POCKET_USER on tty$POCKET_VT"
+	start-stop-daemon --start --background --make-pidfile --pidfile "$pidfile" \
+		--exec /usr/sbin/openvt -- -c "$POCKET_VT" -s -w -f -- \
+		/bin/su -l "$POCKET_USER" -c "$_session"
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping Pocket session on tty$POCKET_VT"
+	_sid="$(_session_id)"
+	if [ -n "$_sid" ]; then
+		loginctl terminate-session "$_sid"
+		_i=0
+		while [ -n "$(_session_id)" ] && [ $_i -lt 50 ]; do
+			sleep 0.1
+			_i=$((_i + 1))
+		done
+		[ -n "$(_session_id)" ] && loginctl kill-session --signal=KILL "$_sid"
+	fi
+	start-stop-daemon --stop --quiet --pidfile "$pidfile" --retry TERM/3/KILL/2 >/dev/null 2>&1
+	rm -f "$pidfile"
+	chvt "$POCKET_RETURN_VT" 2>/dev/null
+	eend 0
+}

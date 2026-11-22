@@ -1,0 +1,23 @@
+#!/bin/sh
+# Runs as the session user inside the seat0 logind session opened by the
+# pocket-session OpenRC service. Starts Phoc, which starts the session client.
+#
+# Overrides (optional) go in ~/pocket-os/session.env, e.g.:
+#   POCKET_CLIENT=wayland-info        # run a different client instead of the shell
+base="$HOME/pocket-os"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/pocket-os"
+mkdir -p "$state"
+[ -f "$state/session.log" ] && mv -f "$state/session.log" "$state/session.log.1"
+exec >"$state/session.log" 2>&1
+
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Pocket
+export POCKET_STATE_DIR="$state"
+
+[ -f "$base/session.env" ] && . "$base/session.env"
+
+echo "pocket-session: start $(date '+%F %T') session=${XDG_SESSION_ID-} seat=${XDG_SEAT-} vt=${XDG_VTNR-} runtime=${XDG_RUNTIME_DIR-}"
+
+client="${POCKET_CLIENT:-$base/bin/pocket-shell}"
+# When the -E client exits, Phoc exits and the session ends.
+exec dbus-run-session -- phoc ${POCKET_PHOC_VERBOSE:+-v} -C "$base/config/phoc.ini" -E "$client"

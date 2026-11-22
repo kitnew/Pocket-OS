@@ -1,0 +1,6 @@
+#!/bin/sh
+# Session client (started by Phoc via -E): Pocket Shell on the Quickshell runtime.
+# If this process exits, Phoc exits and the session ends.
+base="$HOME/pocket-os"
+export QT_QPA_PLATFORM=wayland
+exec "$base/opt/quickshell/bin/quickshell" -p "$base/shell/shell.qml"

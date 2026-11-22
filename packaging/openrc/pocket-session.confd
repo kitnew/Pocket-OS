@@ -1,0 +1,11 @@
+# /etc/conf.d/pocket-session
+
+# User that owns the graphical session (required).
+POCKET_USER=""
+
+# VT used for the session, and the VT to return to on stop (tty1 has the console getty).
+POCKET_VT=7
+POCKET_RETURN_VT=1
+
+# Session launcher run as POCKET_USER. Default: ~POCKET_USER/pocket-os/bin/pocket-session
+#POCKET_SESSION=""

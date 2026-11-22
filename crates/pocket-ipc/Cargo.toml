@@ -1,0 +1,10 @@
+[package]
+name = "pocket-ipc"
+description = "Versioned IPC contract types shared by Pocket Core and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

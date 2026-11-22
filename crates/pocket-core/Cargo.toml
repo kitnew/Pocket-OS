@@ -1,0 +1,13 @@
+[package]
+name = "pocket-core"
+description = "Framework-independent Pocket OS core state and logic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pocket-ipc = { path = "../pocket-ipc" }
+
+[lints]
+workspace = true
