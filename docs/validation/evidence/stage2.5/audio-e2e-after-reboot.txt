@@ -1,0 +1,46 @@
+start: Volume: 0.31
+== 1. audio stack in the session
+PASS  audio component supervised (pid 4441)
+PASS  pipewire running once as nikita
+PASS  wireplumber running once as nikita
+PASS  pipewire-pulse running once as nikita
+PASS  no PulseAudio daemon
+PASS  Pulse protocol served by PipeWire (pipewire-pulse)
+== 2. real output device
+PASS  default sink is ALSA card 0
+      default sink: Built-in Audio Headphones (3.5 mm jack)
+PASS  shell shows the default sink
+PASS  shell reports the sound card
+== 3. volume and mute from the shell reach PipeWire
+PASS  UI volume 25% -> PipeWire Volume: 0.25
+PASS  volume change logged by the shell
+PASS  UI mute -> PipeWire muted
+PASS  raising the volume unmutes
+== 4. external changes reach the shell
+PASS  wpctl 60% -> shell 60%
+PASS  wpctl mute -> shell muted
+PASS  pactl unmute (Pulse client) -> shell unmuted
+== 5. playback reaches the hardware PCM
+PASS  ALSA hw:0,0 RUNNING during a 440 Hz test tone (pipewire ALSA plugin -> PipeWire -> ALSA)
+PASS  speaker-test finished without error
+== 6. volume persists across an audio restart (WirePlumber state)
+PASS  requested restart logged
+PASS  stack back, shell reconnected
+PASS  volume restored to 33%
+PASS  new audio component pid 10291
+== 7. PipeWire crash: the whole stack restarts, no orphans
+PASS  member exit detected
+PASS  supervisor restarts the stack
+PASS  exactly one pipewire/wireplumber/pipewire-pulse; shell reconnected
+PASS  WirePlumber exit detected
+PASS  WirePlumber crash also restarts the stack
+PASS  stack recovered after WirePlumber crash
+== 8. audio stopped -> clear unavailable state; started -> back
+PASS  shell: audio not connected
+PASS  no audio processes while held
+PASS  audio started again, shell reconnected
+== 9. shell and core restarts do not touch audio
+PASS  restarted shell shows audio (33%)
+PASS  audio untouched by shell and core restarts
+
+RESULT: 33 passed, 0 failed

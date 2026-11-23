@@ -1,0 +1,73 @@
+#!/bin/sh
+# The session's audio stack as one supervised component (`pocket-supervise audio`):
+#
+#   pocket-audio
+#   ├── pipewire          graph daemon (ALSA through the card's UCM profile)
+#   ├── wireplumber       session/policy manager: devices, routing, default sink, volume
+#   │                     persistence (~/.local/state/wireplumber)
+#   └── pipewire-pulse    PulseAudio protocol for applications (PipeWire, not PulseAudio)
+#
+# WirePlumber and pipewire-pulse cannot outlive the PipeWire daemon they are connected to,
+# so the three are a unit: if any member exits, the others are stopped and this script
+# exits non-zero; the supervisor restarts the whole stack (with its usual back-off and
+# give-up rule). SIGTERM/SIGINT/SIGHUP stop the stack cleanly (exit 0).
+# Everything runs as the session user. Device access comes from elogind's uaccess ACLs on
+# /dev/snd/* for the active seat session; no root, no `audio` group.
+log() { echo "pocket.audio: $*"; }
+sock="${XDG_RUNTIME_DIR:?}/pipewire-0"
+
+# member NAME CMD...: run CMD in a small watcher subshell that forwards SIGTERM to it and,
+# when CMD exits, reports to this script with SIGUSR1. (busybox ash has no working
+# `wait -n`; a trapped signal is what interrupts `wait` here, as in pocket-supervise.)
+member() {
+	name=$1
+	shift
+	(
+		c='' term=''
+		trap 'term=1; [ -n "$c" ] && kill -TERM "$c" 2>/dev/null' TERM
+		"$@" &
+		c=$!
+		wait "$c"
+		st=$?
+		while kill -0 "$c" 2>/dev/null; do wait "$c"; st=$?; done
+		[ -z "$term" ] && log "event=member.exited name=$name pid=$c status=$st"
+		kill -USR1 $$ 2>/dev/null # $$ is the parent script in a subshell
+	) &
+}
+
+watchers=''
+stopping='' lost=''
+stop_members() { for w in $watchers; do kill -TERM "$w" 2>/dev/null; done; }
+trap 'stopping=1; stop_members' TERM INT HUP
+trap 'lost=1' USR1
+
+member pipewire pipewire
+watchers="$!"
+# WirePlumber and pipewire-pulse connect to the daemon's socket; start them once it
+# exists (normally well under a second; give up after ~10 s).
+i=0
+while [ ! -S "$sock" ] && [ $i -lt 100 ] && [ -z "$stopping$lost" ]; do
+	sleep 0.1
+	i=$((i + 1))
+done
+if [ -z "$stopping$lost" ] && [ -S "$sock" ]; then
+	member wireplumber wireplumber
+	watchers="$watchers $!"
+	member pipewire-pulse pipewire-pulse
+	watchers="$watchers $!"
+	log "event=started members=3 pipewire.sock=$sock"
+	while [ -z "$stopping$lost" ]; do
+		wait # returns on SIGUSR1 (a member exited) or SIGTERM (stop)
+	done
+else
+	log "event=start-failed reason=\"no PipeWire socket after 10 s\""
+fi
+
+[ -z "$stopping" ] && log "event=stack.stopping reason=member-exited"
+stop_members
+for w in $watchers; do
+	while kill -0 "$w" 2>/dev/null; do wait "$w"; done
+done
+log "event=stopped"
+[ -n "$stopping" ] && exit 0
+exit 1

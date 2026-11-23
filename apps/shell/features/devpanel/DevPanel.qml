@@ -103,7 +103,8 @@ Rectangle {
                       + "\naccelerometer " + root.yn(Shell.sensor.available) + " claimed " + root.yn(Shell.sensor.claimed)
                       + " " + Shell.sensor.orientation + (Shell.sensor.lastError ? " (" + Shell.sensor.lastError + ")" : "")
                       + "\nosk " + root.yn(Shell.osk.available) + " visible " + root.yn(Shell.osk.visible)
-                      + " · sound cards " + Shell.audio.cards
+                      + "\naudio cards " + Shell.soundCards.cards + " · pipewire " + root.yn(Shell.audio && Shell.audio.connected)
+                      + (Shell.audio && Shell.audio.available ? " · " + Shell.audio.outputName + " " + Math.round(Shell.audio.volume * 100) + "%" + (Shell.audio.muted ? " muted" : "") : "")
             }
             Text {
                 width: parent.width

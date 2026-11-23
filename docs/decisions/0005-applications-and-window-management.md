@@ -93,6 +93,9 @@ has no dconf). The navigation bar can also toggle it over `sm.puri.OSK0`.
 
 ### Session lock: deferred
 
+(Superseded in detail by [ADR-0006](0006-secure-lock-screen.md), which investigates the
+Phoc/Phosh mechanisms and records the strategy.)
+
 Phoc 0.59 has no `ext-session-lock-v1`. A lock implemented as an ordinary layer
 surface would not be secure: if the shell crashes or is restarted, the compositor shows
 the unlocked session, and other clients keep running and can map surfaces. Phosh's own

@@ -6,11 +6,20 @@
 # org.gnome.desktop.a11y.applications screen-keyboard-enabled is true. There is no dconf
 # on the device, so the keyboard gets a private GSettings keyfile backend with that key
 # set; nothing in the user's own configuration is touched.
+#
+# Landscape: squeekboard sizes its panel from the output width and the layout's aspect
+# ratio, which on a 19.5:9 phone takes half of the landscape height (180 of 360 logical
+# px on lavender). Its supported `scale-in-horizontal-screen-orientation` key (0.5–2.0)
+# shrinks that; 0.8 keeps keys wider than in portrait. Override per device with
+# POCKET_OSK_LANDSCAPE_SCALE in ~/pocket-os/session.env (1.0 = squeekboard's default).
 conf="${XDG_RUNTIME_DIR:?}/pocket-os/osk-config"
 mkdir -p "$conf/glib-2.0/settings"
-cat >"$conf/glib-2.0/settings/keyfile" <<'KEYFILE'
+cat >"$conf/glib-2.0/settings/keyfile" <<KEYFILE
 [org/gnome/desktop/a11y/applications]
 screen-keyboard-enabled=true
+
+[sm/puri/Squeekboard]
+scale-in-horizontal-screen-orientation=${POCKET_OSK_LANDSCAPE_SCALE:-0.8}
 KEYFILE
 export GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$conf"
 exec squeekboard

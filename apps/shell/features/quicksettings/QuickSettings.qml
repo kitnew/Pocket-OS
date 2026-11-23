@@ -68,6 +68,38 @@ Item {
                 font.pixelSize: Theme.fontCaption
             }
 
+            // Volume of the default output (PipeWire). The mute button and slider act on the
+            // real sink; external changes (wpctl, apps, device switches) show up here.
+            Row {
+                id: volumeRow
+                width: parent.width
+                spacing: Theme.space2
+                readonly property var audio: Shell.audio
+                readonly property bool usable: audio !== null && audio.available
+                IconButton {
+                    icon: volumeRow.usable && !volumeRow.audio.muted && volumeRow.audio.volume > 0 ? "volume" : "volume-off"
+                    accessibleName: volumeRow.usable && volumeRow.audio.muted ? "Unmute" : "Mute"
+                    enabled: volumeRow.usable
+                    checked: volumeRow.usable && volumeRow.audio.muted
+                    flat: false
+                    onActivated: Shell.setMuted(!volumeRow.audio.muted)
+                }
+                PocketSlider {
+                    width: parent.width - Theme.touchTarget - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    supported: volumeRow.usable
+                    value: volumeRow.usable ? volumeRow.audio.volume : 0
+                    onMoved: (v) => Shell.setVolume(v)
+                }
+            }
+            Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                text: Shell.volumeStatus
+                color: Shell.audio && Shell.audio.available ? Theme.textMuted : Theme.danger
+                font.pixelSize: Theme.fontCaption
+            }
+
             Grid {
                 id: tiles
                 width: parent.width
@@ -129,13 +161,6 @@ Item {
                     checked: Shell.osk.visible
                     detail: Shell.osk.available ? (Shell.osk.visible ? "Shown" : "Shows on text input") : "Not running"
                     onActivated: Shell.osk.toggle()
-                }
-                ToggleTile {
-                    width: tiles.tileWidth
-                    icon: "volume-off"
-                    label: "Volume"
-                    supported: false
-                    detail: Shell.audio.cards > 0 ? "No mixer integration yet" : "No sound card detected"
                 }
                 ToggleTile {
                     width: tiles.tileWidth

@@ -1,6 +1,6 @@
-// Audio: whether the kernel exposes any sound card (/proc/asound/cards). Pocket has no
-// volume control yet; Quick Settings uses this to say so truthfully (on lavender the
-// mainline kernel currently registers no sound card).
+// Audio: whether the kernel exposes any sound card (/proc/asound/cards). Volume and mute
+// go through PipeWire (apps/shell/services/AudioService.qml); this only lets the UI tell
+// "no sound hardware" apart from "audio service not running".
 #pragma once
 
 #include <QObject>

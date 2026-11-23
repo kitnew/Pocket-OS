@@ -5,7 +5,7 @@
 #   pocket-ctl stop COMPONENT         stop and hold it stopped
 #   pocket-ctl start COMPONENT        release a hold / a gave-up state and start it
 #   pocket-ctl kill COMPONENT SIG     send SIG to the component (fault injection: SEGV, KILL…)
-#                                     COMPONENT: core | shell | osk
+#                                     COMPONENT: core | shell | osk | audio
 #   pocket-ctl env                    print the session environment (DBus/Wayland) to source
 #   pocket-ctl core METHOD [ARGS]     call org.pocketos.Core1.METHOD (dbus-send; for tests)
 #   pocket-ctl apps METHOD [ARGS]     call org.pocketos.Core1.Apps.METHOD (ListApps, Launch, Reload)
@@ -22,8 +22,8 @@ need_session() {
 }
 component() {
 	case "${1:-}" in
-	core | shell | osk) ;;
-	*) echo "component must be core, shell or osk" >&2; exit 2 ;;
+	core | shell | osk | audio) ;;
+	*) echo "component must be core, shell, osk or audio" >&2; exit 2 ;;
 	esac
 }
 pid_of() { cat "$run/$1.pid" 2>/dev/null || true; }
@@ -33,7 +33,7 @@ case "${1:-}" in
 status)
 	need_session
 	echo "session pid $(cat "$run/session.pid")  $(grep -o "WAYLAND_DISPLAY='[^']*'" "$run/env")"
-	for c in core shell osk; do
+	for c in core shell osk audio; do
 		[ -f "$run/$c.supervisor.pid" ] || { printf '%-6s %s\n' "$c" "not started"; continue; }
 		state=running
 		[ -e "$run/$c.hold" ] && state=held

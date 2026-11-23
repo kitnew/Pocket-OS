@@ -18,7 +18,12 @@ scripts/session.sh status        # session, components, core state
 scripts/session.sh shell restart # restart only the shell   (also: stop | start)
 scripts/session.sh core restart  # restart only pocketd     (also: stop | start)
 scripts/session.sh osk restart   # restart only the on-screen keyboard
+scripts/session.sh audio restart # restart only the audio stack (PipeWire + WirePlumber + pipewire-pulse)
 scripts/e2e.sh stage2            # Stage 2 shell e2e (apps, windows, panels, rotation, power)
+scripts/e2e.sh audio             # Stage 2.5 audio e2e (stack lifecycle, volume/mute, playback path)
+scripts/e2e.sh soak              # ~45 min memory/stability soak; scripts/soak-report.py <csv>
+scripts/boot-backup.sh backup    # copy the active boot partition to the host (before apk add/del)
+scripts/boot-backup.sh verify    # after apk: did the boot partition change? (then reboot once)
 scripts/logs.sh                  # fetch session log, print diagnostic events
 scripts/e2e.sh                   # lifecycle e2e test against the running session
 scripts/test-device.sh           # contract + bridge integration tests on the device
@@ -73,10 +78,46 @@ seat session as active, so the accelerometer claim and the Wi-Fi toggle are refu
 These packages ship udev rules, so the install runs pmOS's `mkinitfs` trigger (initramfs
 and `boot.img` are regenerated for the same kernel). Reboot once afterwards to confirm.
 
+Stage 2.5 audio (switch pmOS's audio backend from PulseAudio to PipeWire; details and
+rollback in [`audio.md`](audio.md)), and the Quickshell PipeWire build dependency:
+```sh
+device$ sudo sed -i 's/^postmarketos-base-ui-audio-backend-pulseaudio$/postmarketos-base-ui-audio-backend-pipewire/' /etc/apk/world
+device$ sudo env http_proxy=$P https_proxy=$P apk add pipewire-tools alsa-utils
+device$ sudo env http_proxy=$P https_proxy=$P apk add -t .pocket-build-deps-audio pipewire-dev
+```
+
 Always run `apk add --simulate …` first and check that no `linux-*` or
 `postmarketos-mkinitfs` package gets upgraded. Never run a blanket `apk upgrade` as part of
 Pocket work. Stage 1 added no packages: Rust is built on the host, and QtDBus is part of
-`qt6-qtbase`.
+`qt6-qtbase`. Follow "Boot-image safety" below for every package operation.
+
+### Boot-image safety (package operations)
+
+On lavender, `deviceinfo_flash_kernel_on_update="true"` and `flash_method="fastboot"`.
+The mkinitfs trigger therefore does more than regenerate `/boot/initramfs` and
+`/boot/boot.img`. boot-deploy also **`dd`s the new image to the active `boot` partition**
+(`/dev/disk/by-partlabel/boot` = `mmcblk1p60`, 64 MiB). The trigger fires for any
+package that touches `/usr/lib/udev`, `/lib/firmware`, kernel modules,
+`/usr/share/deviceinfo`, mkinitfs hooks, Plymouth, … (`/lib/apk/db/triggers`). Stage 2
+and Stage 2.5 installs both fired it. `/boot` and `/` are partitions of a disk image
+inside `userdata` (`/dev/loop0p1`, `loop0p2`). Only the `boot` partition is read by the
+bootloader.
+
+Procedure:
+```sh
+scripts/device-online.sh &                     # proxy (if packages must be downloaded)
+device$ sudo env http_proxy=$P apk add --simulate <pkgs>   # no linux-*/device-*/firmware-*/mkinitfs upgrades
+scripts/boot-backup.sh backup                  # host copy of the boot partition + /boot + versions, hashes checked
+device$ sudo env http_proxy=$P apk add <pkgs>
+scripts/boot-backup.sh verify                  # "identical to the last backup" = nothing to do
+ssh lavender sudo reboot                       # only if verify reports CHANGED; then:
+scripts/boot-backup.sh verify && scripts/session.sh start && scripts/e2e.sh all
+scripts/boot-backup.sh backup                  # new known-good after a successful boot
+```
+For an unchanged kernel the regenerated image is byte-identical. Stage 2.5 observed the
+same SHA-256 before and after the trigger, and `verify` reports that. Backups live in
+`~/pocket-os-device-backups/<device>/<timestamp>/` on the host (never in Git):
+`boot-partition.img`, `boot-dir.tar`, `versions.txt`, `device-sha256.txt`, `SHA256SUMS`.
 
 ### Quickshell (not packaged for Alpine)
 ```sh
@@ -128,7 +169,9 @@ device$ echo 'POCKET_CLIENT="/usr/lib/qt6/bin/qmlscene $base/tests/qtquick-touch
 device$ rm ~/pocket-os/session.env     # back to the shell
 ```
 The same file can set `POCKET_RESTART_MAX`/`POCKET_RESTART_WINDOW` (supervisor limits),
-`POCKET_PHOC_VERBOSE=1` and `POCKETD_LOG=debug`.
+`POCKET_PHOC_VERBOSE=1`, `POCKETD_LOG=debug`, `POCKET_NO_AUDIO=1` (no audio component)
+and `POCKET_OSK_LANDSCAPE_SCALE=0.8` (squeekboard height factor in landscape; 1.0 =
+squeekboard default). Write them as `export NAME=value`.
 
 ## 4. Inspect and debug
 
@@ -176,6 +219,8 @@ independent of both.
 | Power key pressed | Short press turns the display off/on (shell). Without a shell it does nothing. Long hold forces a hardware reset |
 | Display stays dark | Press power (a restarted shell re-grabs the key and reads the real output state), or `device$ ~/pocket-os/bin/pocket-ctl ui display true` |
 | Keyboard stuck or gone | `scripts/session.sh osk restart` |
+| No sound / volume shows "Audio service not running" | `scripts/session.sh audio restart`. Gave up: `~/.local/state/pocket-os/audio-gave-up.log`, then `audio start`. `device$ . $XDG_RUNTIME_DIR/pocket-os/env; wpctl status` |
+| Device does not boot after a package operation | Power off (hold Power ≥10 s), boot to fastboot (Volume-down + Power), then on the host `fastboot flash boot ~/pocket-os-device-backups/lavender/<last-good>/boot-partition.img && fastboot reboot`. This restores the boot partition only. The root filesystem is untouched, so undo the package change afterwards over SSH |
 
 ## 6. After a reboot
 
@@ -195,11 +240,14 @@ scripts/session.sh stop
 | Same contract test on the device + bridge (C++/QtTest) integration test | `scripts/test-device.sh` | `scripts/build.sh && scripts/deploy.sh`. Runs on private buses, safe while a session runs |
 | Session lifecycle e2e (signals, core/shell crash and restart, give-up, recovery) | `scripts/e2e.sh` | a running session. Evidence in `.cache/e2e/<ts>/` |
 | Stage 2 shell e2e (catalog, launch, home/reactivate, switcher, failures, close, quick settings, brightness, rotation, display power, OSK, app survival) | `scripts/e2e.sh stage2` (`all` = both) | a running session; installs/removes test `.desktop` files in `~/.local/share/applications` |
+| Stage 2.5 audio e2e (stack running as the user, no PulseAudio, real ALSA sink, volume/mute both ways (shell ↔ wpctl/pactl), playback reaches `hw:0,0`, volume persistence, PipeWire/WirePlumber crash recovery, stop/start, shell/core restarts leave audio alone) | `scripts/e2e.sh audio` | a running session |
+| Memory/stability soak (idle baseline → 40 min of IPC-driven activity → idle; `/proc` sampler every 30 s) | `scripts/e2e.sh soak`, then `scripts/soak-report.py .cache/e2e/<ts>/soak.csv` | a running session; ~45 min; leave the device alone |
 | QML lint | `scripts/check.sh --device` (also runs `test-device.sh`) | device |
 | Physical touch | the script in `docs/validation/stage2.md` (launcher search with OSK, Home/Running chip, switcher, Quick Settings, landscape taps, auto-rotation, power key); check the `pocket.shell.diag` events in `scripts/logs.sh` | a person |
 
 ## 8. Rollback of device changes
 
+Stage 2.5: `docs/validation/stage2.5.md#device-changes-and-rollback`.
 Stage 2: `docs/validation/stage2.md#device-changes-in-stage-2-and-rollback`.
 Stage 1: `docs/validation/stage1.md#device-changes-in-stage-1`. Stage 0:
 `docs/validation/stage0.md#rollback`.
@@ -266,6 +314,6 @@ immediately.
 ```sh
 scripts/check.sh --device        # host checks + qmllint + device integration tests
 scripts/session.sh start
-scripts/e2e.sh all               # Stage 1 lifecycle (29) + Stage 2 functions (56, 1 skip)
+scripts/e2e.sh all               # Stage 1 lifecycle (29) + Stage 2 functions (56, 1 skip) + audio (33)
 ```
 Then run the physical script from `docs/validation/stage2.md`.

@@ -14,10 +14,12 @@ import "surfaces"
 ShellRoot {
     WindowService { id: windowService }
     SystemStatus { id: systemStatus }
+    AudioService { id: audioService }
 
     Component.onCompleted: {
         Shell.windows = windowService
         Shell.system = systemStatus
+        Shell.audio = audioService
     }
 
     // Developer/test control of the UI over Quickshell IPC, e.g.
@@ -44,6 +46,8 @@ ShellRoot {
         function rotation(mode: string): void { Shell.setRotationMode(mode) }
         function display(on: bool): void { Shell.setDisplayOn(on) }
         function brightness(percent: int): void { Shell.brightness.setValue(percent / 100) }
+        function volume(percent: int): string { return Shell.setVolume(percent / 100) ? "ok" : "unavailable" }
+        function mute(on: bool): string { return Shell.setMuted(on) ? "ok" : "unavailable" }
         function state(): string {
             return JSON.stringify({
                 core: Shell.core.statusText, mode: Shell.core.mode, apps: Shell.apps.count,
@@ -57,6 +61,10 @@ ShellRoot {
                 battery: Shell.system ? { available: Shell.system.batteryAvailable, percent: Math.round(Shell.system.batteryPercent), charging: Shell.system.batteryCharging } : null,
                 wifi: Shell.system ? { available: Shell.system.wifiAvailable, enabled: Shell.system.wifiEnabled, connected: Shell.system.wifiConnected } : null,
                 bluetooth: Shell.system ? { available: Shell.system.bluetoothAvailable, enabled: Shell.system.bluetoothEnabled } : null,
+                audio: Shell.audio ? { connected: Shell.audio.connected, available: Shell.audio.available,
+                                       output: Shell.audio.outputName, outputId: Shell.audio.outputId,
+                                       volume: Math.round(Shell.audio.volume * 100), muted: Shell.audio.muted,
+                                       cards: Shell.soundCards.cards } : null,
                 toasts: Shell.toasts.count
             })
         }

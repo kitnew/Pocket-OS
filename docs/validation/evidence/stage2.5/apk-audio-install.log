@@ -1,0 +1,113 @@
+Downloading 11 packages...
+( 1/11) Downloading pipewire-pulse-1.6.11-r0
+( 2/11) Downloading pipewire-pulse-openrc-1.6.11-r0
+( 3/11) Downloading pipewire-tools-1.6.11-r0
+( 4/11) Downloading pipewire-alsa-1.6.11-r0
+( 5/11) Downloading bluez-libs-5.87-r0
+( 6/11) Downloading fdk-aac-2.0.2-r4
+( 7/11) Downloading libfreeaptx-0.2.2-r0
+( 8/11) Downloading liblc3-1.0.4-r0
+( 9/11) Downloading libldac-2.0.2.3-r1
+(10/11) Downloading pipewire-spa-bluez-1.6.11-r0
+(11/11) Downloading postmarketos-base-ui-audio-backend-pipewire-66-r0
+Proceeding with upgrade...
+( 1/28) Purging gst-plugin-pipewire (1.6.11-r0)
+( 2/28) Purging gstreamer-ptp-helper (1.28.9-r0)
+( 3/28) Purging libcanberra-gstreamer (0.30-r12)
+( 4/28) Purging postmarketos-base-ui-audio-backend-pulseaudio (66-r0)
+( 5/28) Purging alsa-plugins-pulse (1.2.12-r3)
+( 6/28) Purging pulseaudio (17.0-r9)
+( 7/28) Purging pulseaudio-alsa (17.0-r9)
+( 8/28) Purging pulseaudio-openrc (17.0-r9)
+( 9/28) Purging pulseaudio-wireplumber (17.0-r9)
+(10/28) Purging webrtc-audio-processing-1 (1.3-r5)
+(11/28) Purging pulseaudio-bluez (17.0-r9)
+(12/28) Installing pipewire-pulse (1.6.11-r0)
+(13/28) Installing pipewire-pulse-openrc (1.6.11-r0)
+(14/28) Installing pipewire-tools (1.6.11-r0)
+(15/28) Installing pipewire-alsa (1.6.11-r0)
+(16/28) Installing bluez-libs (5.87-r0)
+(17/28) Installing fdk-aac (2.0.2-r4)
+(18/28) Installing libfreeaptx (0.2.2-r0)
+(19/28) Installing liblc3 (1.0.4-r0)
+(20/28) Installing libldac (2.0.2.3-r1)
+(21/28) Installing pipewire-spa-bluez (1.6.11-r0)
+(22/28) Installing postmarketos-base-ui-audio-backend-pipewire (66-r0)
+(23/28) Purging gst-plugins-base (1.28.9-r0)
+(24/28) Purging cdparanoia-libs (10.2-r14)
+(25/28) Purging graphene (1.10.8-r6)
+(26/28) Purging gstreamer (1.28.9-r0)
+(27/28) Purging libtheora (1.2.0-r1)
+(28/28) Purging libxv (1.0.13-r0)
+Executing busybox-1.38.0-r8.trigger
+Executing glib-2.90.1-r0.trigger
+Executing dbus-1.16.4-r0.trigger
+Executing postmarketos-mkinitfs-2.12.2-r0.trigger
+* 09:12:37.209500 Generating for kernel version: 7.2.15-sdm660
+* 09:12:37.209698 Output directory: /boot
+* 09:12:37.209708 Unknown or no compression format set, using zstd
+* 09:12:37.209714 == Generating initramfs ==
+* 09:12:37.209721 - Using compression format zstd with level "default"
+* 09:12:37.209770 - Searching for directories specified in /usr/share/mkinitfs/dirs
+* 09:12:37.211928 -- Creating directories from: /usr/share/mkinitfs/dirs/00-initramfs-base.dirs
+* 09:12:37.213122 - Searching for directories specified in /etc/mkinitfs/dirs
+* 09:12:37.215512 - Searching for file lists from /usr/share/mkinitfs/files
+* 09:12:37.216401 -- Including files from: /usr/share/mkinitfs/files/00-device-xiaomi-lavender-modules.files
+* 09:12:37.219667 -- Including files from: /usr/share/mkinitfs/files/00-initramfs-base.files
+* 09:12:37.221599 --- Unable to find optional path, skipping...
+* 09:12:37.221669 --- Unable to find optional path, skipping...
+* 09:12:37.231605 -- Including files from: /usr/share/mkinitfs/files/10-wireless-regdb.files
+* 09:12:37.232841 -- Including files from: /usr/share/mkinitfs/files/postmarketos-base.files
+* 09:12:37.233993 - Searching for file lists from /etc/mkinitfs/files
+* 09:12:37.235566 - Searching for hook scripts from /usr/share/mkinitfs/hooks
+* 09:12:37.236275 - Searching for hook scripts from /etc/mkinitfs/hooks
+* 09:12:37.237387 - Searching for hook scripts from /usr/share/mkinitfs/hooks-cleanup
+* 09:12:37.237446 -- Unable to find dir, skipping...
+* 09:12:37.237464 - Searching for hook scripts from /etc/mkinitfs/hooks-cleanup
+* 09:12:37.237491 -- Unable to find dir, skipping...
+* 09:12:37.237868 - Searching for kernel modules from /usr/share/mkinitfs/modules
+* 09:12:37.237978 -- Including modules from: /usr/share/mkinitfs/modules/00-default.modules
+* 09:12:37.331849 -- Including modules from: /usr/share/mkinitfs/modules/00-device-xiaomi-lavender.modules
+* 09:12:37.361287 - Searching for kernel modules from /etc/mkinitfs/modules
+* 09:12:37.365586 - Searching for file lists from /usr/share/mkinitfs/files-extra
+* 09:12:37.366972 -- Including files from: /usr/share/mkinitfs/files-extra/00-initramfs-extra-base.files
+* 09:12:37.436638 -- Including files from: /usr/share/mkinitfs/files-extra/30-postmarketos-bootsplash.files
+* 09:12:37.549955 - Searching for file lists from /etc/mkinitfs/files-extra
+* 09:12:37.552016 - Searching for hook scripts from /usr/share/mkinitfs/hooks-extra
+* 09:12:37.553555 - Searching for hook scripts from /etc/mkinitfs/hooks-extra
+* 09:12:37.555312 - Searching for kernel modules from /usr/share/mkinitfs/modules-extra
+* 09:12:37.556633 -- Including modules from: /usr/share/mkinitfs/modules-extra/00-default-extra.modules
+* 09:12:37.571345 - Searching for kernel modules from /etc/mkinitfs/modules-extra
+* 09:12:39.161595 initramfs completed in: 1.95s
+* 09:12:39.161697 == Using boot-deploy to finalize/install files ==
+* ==> Running hooks
+* ==> kernel: device-tree blob operations
+* ==> kernel: appending device-tree qcom/sdm660-xiaomi-lavender-tianma
+* ==> initramfs: creating boot.img
+* Parsing /usr/lib/kernel-cmdline.d/00-base.conf
+* Parsing /usr/lib/kernel-cmdline.d/20-plymouth.conf
+* Parsing /usr/lib/kernel-cmdline.d/50-device-xiaomi-lavender.conf
+* ==> Generating extlinux.conf
+* Parsing /usr/lib/kernel-cmdline.d/00-base.conf
+* Parsing /usr/lib/kernel-cmdline.d/20-plymouth.conf
+* Parsing /usr/lib/kernel-cmdline.d/50-device-xiaomi-lavender.conf
+* Parsing /usr/lib/kernel-cmdline.d/00-base.conf
+* Parsing /usr/lib/kernel-cmdline.d/20-plymouth.conf
+* Parsing /usr/lib/kernel-cmdline.d/50-device-xiaomi-lavender.conf
+* systemd-boot: systemd-boot EFI app or powervm-boot not found, skipping
+* ==> Checking free space at /boot
+* ... OK!
+* ==> Installing: /boot/initramfs
+* ==> Installing: /boot/sdm660-xiaomi-lavender-tianma.dtb
+* ==> Installing: /boot/boot.img
+* ==> Installing: /boot//extlinux/extlinux.conf
+* ==> Flashing boot image
+* Flashing boot.img to 'boot'
+* 22+1 records in
+* 22+1 records out
+* 24047616 bytes (22.9MB) copied, 0.164085 seconds, 139.8MB/s
+* Done.
+* 09:12:43.063342 boot-deploy completed in: 3.90s
+* 09:12:43.092617 mkinitfs completed in: 5.89s
+Executing eudev-9999.3.2.14-r7.trigger
+OK: 3886.6 MiB in 683 packages

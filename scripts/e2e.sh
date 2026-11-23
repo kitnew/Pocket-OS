@@ -4,7 +4,10 @@
 # .cache/e2e/<timestamp>/.
 #   scripts/e2e.sh            Stage 1 session lifecycle (tests/device/session-e2e.sh)
 #   scripts/e2e.sh stage2     Stage 2 shell functions (tests/device/stage2-e2e.sh)
-#   scripts/e2e.sh all        both
+#   scripts/e2e.sh audio      Stage 2.5 audio stack + volume (tests/device/audio-e2e.sh)
+#   scripts/e2e.sh all        all of the above
+#   scripts/e2e.sh soak       memory/stability soak (tests/device/soak.sh, ~45 min; env
+#                             SOAK_MINUTES SOAK_IDLE SOAK_INTERVAL); report: scripts/soak-report.py
 set -eu
 HOST="${POCKET_DEVICE:-lavender}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,13 +17,16 @@ tar -C "$root/tests/device" -c . | ssh "$HOST" 'mkdir -p ~/pocket-os/tests && ta
 case "${1:-stage1}" in
 stage1) tests="session-e2e" ;;
 stage2) tests="stage2-e2e" ;;
-all) tests="session-e2e stage2-e2e" ;;
-*) sed -n '2,8s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+audio) tests="audio-e2e" ;;
+all) tests="session-e2e stage2-e2e audio-e2e" ;;
+soak) tests="soak" ;;
+*) sed -n '2,11s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac
 status=0
 for t in $tests; do
-	ssh "$HOST" "rm -rf /tmp/pocket-e2e; OUT=/tmp/pocket-e2e sh ~/pocket-os/tests/$t.sh" | tee "$out/$t.txt" || status=$?
-	scp -q "$HOST:/tmp/pocket-e2e/*.png" "$out/" 2>/dev/null || true
+	ssh "$HOST" "rm -rf /tmp/pocket-e2e; SOAK_MINUTES=${SOAK_MINUTES:-40} SOAK_IDLE=${SOAK_IDLE:-150} \
+		SOAK_INTERVAL=${SOAK_INTERVAL:-30} OUT=/tmp/pocket-e2e sh ~/pocket-os/tests/$t.sh" | tee "$out/$t.txt" || status=$?
+	scp -q "$HOST:/tmp/pocket-e2e/*.png" "$HOST:/tmp/pocket-e2e/*.csv" "$HOST:/tmp/pocket-e2e/*.txt" "$out/" 2>/dev/null || true
 done
 scp -q "$HOST:.local/state/pocket-os/session.log" "$out/" 2>/dev/null || true
 echo "evidence: $out"

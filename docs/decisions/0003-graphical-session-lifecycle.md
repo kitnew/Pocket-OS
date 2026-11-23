@@ -33,14 +33,21 @@ rc-service pocket-session (root, manual)
       └─ dbus-run-session                      private session bus
          └─ pocket-session-run                 session root; lives as long as Phoc
             ├─ pocket-supervise core pocketd
-            └─ phoc -E "pocket-supervise shell pocket-shell"
-                         └─ quickshell (Pocket Shell + Pocket.Core bridge)
+            ├─ pocket-supervise audio pocket-audio      (Stage 2.5: pipewire, wireplumber, pipewire-pulse)
+            ├─ phoc -E "pocket-supervise shell pocket-shell"
+            │            └─ quickshell (Pocket Shell + Pocket.Core bridge)
+            └─ pocket-supervise osk pocket-osk          (Stage 2: squeekboard)
 ```
 
 - **Stage 2 addition:** a third supervised component, `osk` (`pocket-supervise osk
   pocket-osk` → squeekboard), started by the session root once Phoc's socket exists and
   stopped before Phoc. `pocketd` (only it) also gets `WAYLAND_DISPLAY`, because it
   launches applications. Phoc must not inherit it, or wlroots would start nested.
+- **Stage 2.5 addition:** a fourth component, `audio` (`pocket-supervise audio
+  pocket-audio`). It starts with Core and needs no Wayland. `pocket-audio` runs PipeWire,
+  WirePlumber and pipewire-pulse as **one unit**: if any member exits, the others are
+  stopped and the stack is restarted together. WirePlumber and pipewire-pulse cannot
+  outlive their daemon. Details: `docs/development/audio.md`.
 - **Phoc** stays the `-E` parent of the shell, but its `-E` child is the shell
   *supervisor*, which never exits on a shell crash. Phoc therefore outlives the shell.
 - **Core** is a sibling of Phoc under the session root, so it depends on neither Phoc

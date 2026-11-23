@@ -35,7 +35,10 @@ Portable code depends only on Qt Quick and the two C++ QML modules:
   `PowerKey` (phosh_private accelerator grab), `DisplayPower`
   (wlr-output-power-management), `OutputConfig` (wlr-output-management transform),
   `Brightness` (logind `SetBrightness`), `OrientationSensor` (iio-sensor-proxy),
-  `OnScreenKeyboard` (`sm.puri.OSK0`), `Audio` (`/proc/asound`).
+  `OnScreenKeyboard` (`sm.puri.OSK0`), `Audio` (`/proc/asound`: sound-card presence
+  only).
+- Stage 2.5: `services/AudioService.qml` (Quickshell.Services.Pipewire) is injected as
+  `Shell.audio`: default output, volume, mute.
 
 ### Shared state: one `Shell` singleton
 
@@ -55,7 +58,7 @@ State ownership:
 |---|---|---|
 | Pocket Core | mode, app catalog, launch results | `Shell.core`, `Shell.apps` |
 | Compositor (Phoc) | windows, activation, output power, output transform | `Shell.windows`, `Shell.display`, `Shell.output` |
-| System services | battery, network, Bluetooth, backlight, accelerometer, OSK visibility | `Shell.system`, `Shell.brightness`, `Shell.sensor`, `Shell.osk` |
+| System services | battery, network, Bluetooth, backlight, accelerometer, OSK visibility, audio volume/mute (PipeWire) | `Shell.system`, `Shell.brightness`, `Shell.sensor`, `Shell.osk`, `Shell.audio` |
 | UI | `homeRequested`/`homeVisible`, `homePage`, `panel`, `rotationMode`, toasts | `Shell` properties |
 
 Nothing system- or compositor-owned is copied into Pocket Core. UI-owned state is
@@ -66,13 +69,26 @@ current transform.
 
 | Surface | Layer | Anchors / exclusive zone | Keyboard | Mapped |
 |---|---|---|---|---|
-| Status bar | top | top edge, zone = 28 | none | always |
-| Navigation bar | top | bottom edge, zone = 44 | none | always |
+| Status bar | top | top edge, zone = 28 | none | always, except while the OSK is shown in landscape (Stage 2.5) |
+| Navigation bar | **overlay** (Stage 2.5; was top) | bottom edge, zone = 44 | none | always |
 | Home (home/launcher/switcher) | top | fill, respects zones | on demand (search field) | `Shell.homeVisible` |
 | Developer panel | overlay | fill, respects zones | none | `panel === "dev"` |
 | Quick Settings | overlay | fill, ignores zones (scrim) | none | `panel === "quicksettings"` |
 | Overlay host (toasts) | overlay | bottom edge, input mask = toasts | none | while toasts exist |
 | On-screen keyboard (squeekboard, separate client) | top | bottom, own zone | — | when shown |
+
+Stage 2.5 changes, both from the landscape keyboard work (validation report 2.5):
+- **Navigation bar on the overlay layer.** Phoc applies exclusive zones layer by layer
+  (overlay first) and, within one layer, oldest surface first
+  (`layer-shell.c` `arrange_layer`). squeekboard keeps its top-layer surface once it has
+  created it. So with both on the top layer, a shell restart put the keyboard *under*
+  the navigation bar. On the overlay layer the bar always owns the bottom edge and the
+  keyboard sits above it. The bar also stays reachable above fullscreen windows, and
+  there are no edge gestures to leave them.
+- **Status bar unmapped while the OSK is shown in landscape.** With 360 logical px of
+  height, 28 px of status is the cheapest space to return to the focused application.
+  Combined with squeekboard's `scale-in-horizontal-screen-orientation` = 0.8
+  (`pocket-osk`), the application area above the keyboard grows from 108 to 172 px.
 
 Surfaces that are not needed are **unmapped**, not hidden behind transparent pixels, so
 they never take touches meant for applications. The bars' exclusive zones make Phoc lay

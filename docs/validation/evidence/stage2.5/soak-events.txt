@@ -1,0 +1,10 @@
+1 phase baseline
+151 phase activity
+401 cycle 10 errors=0
+652 cycle 20 errors=0
+914 cycle 30 errors=0
+1164 cycle 40 errors=0
+1415 cycle 50 errors=0
+1677 cycle 60 errors=0
+1927 cycle 70 errors=0
+2178 cycle 80 errors=0

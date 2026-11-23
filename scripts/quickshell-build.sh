@@ -4,7 +4,11 @@
 # rebuilt after every Qt upgrade on the device (re-run this script).
 #
 # Host: fetches pinned sources (needs internet), copies them to the device, builds there.
-# Device prerequisites: the `.pocket-build-deps` packages (see docs/development/README.md).
+# Device prerequisites: the `.pocket-build-deps` and `.pocket-build-deps-audio` packages
+# (see docs/development/README.md).
+#
+# Modules: Quickshell.Networking, Quickshell.Bluetooth (Stage 2), Quickshell.Services.Pipewire
+# (Stage 2.5, volume control). PAM/polkit/greetd are off: the shell does no authentication.
 set -eu
 HOST="${POCKET_DEVICE:-lavender}"
 QS_REPO="${QS_REPO:-https://git.outfoxxed.me/quickshell/quickshell.git}"
@@ -27,10 +31,18 @@ if [ ! -f "$cache/CLI11-$CLI11_VER.tar.gz" ]; then
 		"https://github.com/CLIUtils/CLI11/archive/refs/tags/v$CLI11_VER.tar.gz"
 fi
 
-echo "== copying sources to $HOST"
-ssh "$HOST" 'rm -rf ~/pocket-os-build/quickshell-src && mkdir -p ~/pocket-os-build'
-git -C "$cache/quickshell" archive --format=tar --prefix=quickshell-src/ HEAD |
-	ssh "$HOST" 'tar -C ~/pocket-os-build -xm'  # -m: tolerate device clock skew
+# Sources are copied only when the pinned commit changed: re-extracting (tar -m resets
+# mtimes) would force a full rebuild (~50 min) even when only a CMake option changed.
+rev="$(git -C "$cache/quickshell" rev-parse HEAD)"
+if [ "$(ssh "$HOST" 'cat ~/pocket-os-build/quickshell-src/.pocket-rev 2>/dev/null')" != "$rev" ]; then
+	echo "== copying sources to $HOST"
+	ssh "$HOST" 'rm -rf ~/pocket-os-build/quickshell-src && mkdir -p ~/pocket-os-build'
+	git -C "$cache/quickshell" archive --format=tar --prefix=quickshell-src/ HEAD |
+		ssh "$HOST" 'tar -C ~/pocket-os-build -xm'  # -m: tolerate device clock skew
+	echo "$rev" | ssh "$HOST" 'cat > ~/pocket-os-build/quickshell-src/.pocket-rev'
+else
+	echo "== sources on $HOST are already at $QS_REF ($rev); incremental build"
+fi
 scp -q "$cache/CLI11-$CLI11_VER.tar.gz" "$HOST:pocket-os-build/"
 
 echo "== building on $HOST (Quickshell $QS_REF, -j$JOBS)"
@@ -53,7 +65,7 @@ cmake -S "$b/quickshell-src" -B "$b/quickshell-build" -G Ninja \
 	-DDISTRIBUTOR="Pocket OS dev build (source, $QS_REF)" \
 	-DGIT_REVISION="$QS_REF" \
 	-DCRASH_HANDLER=OFF -DX11=OFF -DI3=OFF -DHYPRLAND=OFF \
-	-DSERVICE_PIPEWIRE=OFF -DSERVICE_PAM=OFF -DSERVICE_POLKIT=OFF -DSERVICE_GREETD=OFF \
+	-DSERVICE_PIPEWIRE=ON -DSERVICE_PAM=OFF -DSERVICE_POLKIT=OFF -DSERVICE_GREETD=OFF \
 	-DBLUETOOTH=ON -DNETWORK=ON
 nice cmake --build "$b/quickshell-build" -j "$JOBS"
 rm -rf "$prefix"

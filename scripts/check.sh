@@ -17,7 +17,7 @@ if command -v shellcheck >/dev/null; then
 	echo "== shellcheck"
 	shellcheck -S warning scripts/*.sh scripts/device/* tests/device/*.sh
 fi
-echo "== python"; python3 -m py_compile scripts/host-proxy.py
+echo "== python"; python3 -m py_compile scripts/host-proxy.py scripts/soak-report.py
 if [ "${1:-}" = "--device" ]; then
 	echo "== qmllint (device)"
 	"$root/scripts/deploy.sh" >/dev/null

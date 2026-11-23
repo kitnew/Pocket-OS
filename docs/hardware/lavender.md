@@ -56,7 +56,7 @@ All values below were **read from the device** on 2026-11-22 (commands in
 
 | Item | Observed |
 |---|---|
-| Sound card | `0 [X7]: sdm660 - Xiaomi Redmi Note 7` registers **some time after boot** (ADSP firmware). Directly after boot `aplay -l` reported no card. No sound server runs in the Pocket session |
+| Sound card | `0 [X7]: sdm660 - Xiaomi Redmi Note 7` registers **some time after boot** (ADSP firmware). Directly after boot `aplay -l` reported no card. Since Stage 2.5 the session runs PipeWire/WirePlumber. UCM has Earpiece, Headphones, Mic and Headset Mic, but **no Speaker**. Jack detection is broken by a UCM/kernel control-name mismatch (`Headset Jack` vs `Headphone Jack`/`Mic Jack`). Details: [`../development/audio.md`](../development/audio.md) |
 | Battery | `qcom-battery` (+ `pm660-charger`), read through UPower 1.91 |
 | Backlight | `/sys/class/backlight/backlight` root-owned. Set without root through logind `Session.SetBrightness` from the active seat session |
 | Wi-Fi / Bluetooth | `wlan0` (ath10k) via NetworkManager. `hci0` via BlueZ 5.87. Both rfkill-unblocked |
@@ -70,3 +70,8 @@ All values below were **read from the device** on 2026-11-22 (commands in
    `HandlePowerKey=ignore`, and the shell handles the short press (display on/off).
 3. RTC is not writable; clock is wrong after cold boot without network.
 4. No permanent graphical session is configured; console getty on tty1 remains the default.
+5. Every mkinitfs trigger re-flashes the `boot` partition (`deviceinfo_flash_kernel_on_update`).
+   Back up and verify it around package operations (`scripts/boot-backup.sh`, development
+   guide "Boot-image safety").
+6. Loudspeaker audio is not available with the current kernel/UCM. Headphone and earpiece
+   routes exist, but jack detection does not work (see audio notes).

@@ -72,11 +72,13 @@ QtObject {
     readonly property OnScreenKeyboard osk: OnScreenKeyboard {
         onVisibleChanged: shell.diag("osk.visible", { visible: visible })
     }
-    readonly property Audio audio: Audio {}
+    // Sound cards registered by the kernel: tells "no hardware" from "no audio service".
+    readonly property Audio soundCards: Audio {}
 
     // ── Injected by the Quickshell layer ─────────────────────────────────────
     property var windows: null     // services/WindowService.qml
     property var system: null      // services/SystemStatus.qml
+    property var audio: null       // services/AudioService.qml (PipeWire default output)
 
     readonly property var windowList: windows ? windows.toplevels : []
     readonly property int windowCount: windowList.length
@@ -193,6 +195,30 @@ QtObject {
             if (Object.keys(shell._pending).length > 0)
                 restart()
         }
+    }
+
+    // ── Audio (PipeWire owns the state; `audio` is the injected adapter) ─────
+    function setVolume(v) { return audio !== null && audio.setVolume(v) }
+    function setMuted(m) { return audio !== null && audio.setMuted(m) }
+    readonly property string volumeStatus: {
+        if (soundCards.cards === 0)
+            return "No sound card detected"
+        if (!audio || !audio.connected)
+            return "Audio service not running"
+        if (!audio.available)
+            return "No audio output"
+        return audio.outputName + (audio.muted ? " · muted" : " · " + Math.round(audio.volume * 100) + "%")
+    }
+    // One diagnostic line per settled change, whatever its source (slider, IPC, wpctl,
+    // device switch). The timer runs only after a change; nothing polls.
+    readonly property string _audioState: audio ? [audio.available, audio.outputId, Math.round(audio.volume * 100), audio.muted].join() : ""
+    on_AudioStateChanged: _audioLog.restart()
+    readonly property Timer _audioLog: Timer {
+        interval: 400
+        onTriggered: shell.diag("audio.state", shell.audio
+            ? { available: shell.audio.available, output: "\"" + shell.audio.outputName + "\"", id: shell.audio.outputId,
+                volume: Math.round(shell.audio.volume * 100), muted: shell.audio.muted }
+            : { available: false })
     }
 
     // ── Display, power key, rotation ─────────────────────────────────────────
