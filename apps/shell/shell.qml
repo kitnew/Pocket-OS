@@ -74,10 +74,28 @@ ShellRoot {
             else if (op === "unpin") Shell.dockNav.setPinned(false)
             else if (op === "page") Shell.dockNav.selectPage(arg)
             else if (op === "notifications") Shell.dockNav.openModal("notifications")
-            else if (op === "close") { Shell.cancelDockConfirm(); Shell.dockNav.closeModal() }
+            else if (op === "close") { Shell.cancelDockConfirm(); if (Shell.dockDetail) Shell.closeTileDetail(); Shell.dockNav.closeModal() }
             else if (op === "touch") Shell.dockNav.interact()
+            else if (op === "edit") Shell.beginDeckEdit()
+            else if (op === "save") Shell.saveDeckEdit()
+            else if (op === "cancel") Shell.cancelDeckEdit()
+            else if (op === "addtile") Shell.addDeckTile(arg || Shell.dockNav.page)
+            else if (op === "editpage") Shell.editDeckPage(arg || Shell.dockNav.page)
+            else if (op === "closeeditor") Shell.closeDeckEditor()
+            else if (op === "access") Shell.requestAccess(arg)
             else return "unknown op"
             return "ok"
+        }
+        // Tile details (long press) / editor (edit mode) for a tile id ("page/index").
+        function tileinfo(id: string): string {
+            for (const p of (Shell.shownDeck.pages || []))
+                for (const t of p.tiles)
+                    if (t.id === id) {
+                        if (Shell.deckEditing) Shell.editDeckTile(t)
+                        else Shell.openTileDetail(t)
+                        return JSON.stringify(Shell.tileState(t, false))
+                    }
+            return "no such tile"
         }
         // Taps a deck tile by its id ("page/index"), e.g. tile general/3.
         function tile(id: string): string {
@@ -98,6 +116,7 @@ ShellRoot {
             return "ok"
         }
         function dnd(on: bool): void { Shell.dock.setPreference("dnd", on) }
+        function motion(reduce: bool): void { Shell.dock.setPreference("reduce_motion", reduce) }
         function state(): string {
             return JSON.stringify({
                 core: Shell.core.statusText, mode: Shell.core.mode, apps: Shell.apps.count,
@@ -129,6 +148,14 @@ ShellRoot {
                         deck: { source: Shell.dock.deck.source || "", error: Shell.dock.deck.error || "",
                                 pages: (Shell.dock.deck.pages || []).map(p => p.id) },
                         tiles: Shell.tileResults, confirm: Shell.dockConfirm ? Shell.dockConfirm.label : "",
+                        tileKinds: (Shell.shownDeck.pages || []).reduce((o, p) => {
+                            for (const t of p.tiles) o[t.id] = Shell.tileState(t, false).kind
+                            return o
+                        }, {}),
+                        immersive: Shell.immersive, reduceMotion: Shell.reduceMotion,
+                        editing: Shell.deckEditing, editTarget: Shell.deckEditTarget,
+                        detail: Shell.dockDetail ? Shell.dockDetail.tile.id : "",
+                        deckEditable: Shell.dock.deckEditable,
                         live: Object.keys(Shell.dock.live).reduce((o, t) => {
                             const v = Shell.dock.live[t]
                             o[t] = { available: v.available, stale: v.stale, rev: v.rev, data: v.data }

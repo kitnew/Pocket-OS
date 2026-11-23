@@ -10,8 +10,9 @@ import "../theme"
 // While the on-screen keyboard is shown in landscape the bar is unmapped: the 360 px
 // landscape height is too short to spend 28 px on status while typing. The navigation
 // bar (Home, keyboard dismiss) stays; the status bar returns when the keyboard hides.
+// The immersive Dock (Shell.immersive) draws its own status, so the bar is unmapped there.
 PanelWindow {
-    visible: !(Shell.landscapeOutput && Shell.osk.visible)
+    visible: !(Shell.landscapeOutput && Shell.osk.visible) && !Shell.immersive
     anchors { top: true; left: true; right: true }
     implicitHeight: Theme.statusBarHeight
     exclusionMode: ExclusionMode.Auto

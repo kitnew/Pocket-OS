@@ -9,7 +9,7 @@ import "../theme"
 // limited to the toasts themselves, so the rest of the screen stays usable.
 PanelWindow {
     anchors { bottom: true; left: true; right: true }
-    margins.bottom: Theme.navBarHeight + Theme.space2
+    margins.bottom: Shell.immersive ? Theme.space3 : Theme.navBarHeight + Theme.space2
     implicitHeight: Math.max(1, stack.implicitHeight)
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
@@ -21,7 +21,7 @@ PanelWindow {
 
     ToastStack {
         id: stack
-        x: Theme.space3
-        width: parent.width - 2 * Theme.space3
+        width: Math.min(parent.width - 2 * Theme.space3, 460)
+        x: (parent.width - width) / 2
     }
 }

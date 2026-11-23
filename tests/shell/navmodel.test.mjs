@@ -120,3 +120,20 @@ test("the reducer never mutates its input", () => {
     Nav.reduce(s, { type: "pin", pinned: true, now: 5 })
     assert.equal(JSON.stringify(s), frozen)
 })
+
+test("informational sheets (details, notifications) do not pin the view; idle closes them", () => {
+    let s = run(start(), { type: "navigate", view: "deck", now: 0 }, { type: "modal", name: "detail", now: 1 })
+    assert.equal(Nav.nextDeadline(s), 1 + T)
+    s = run(s, { type: "tick", now: 1 + T })
+    assert.equal(s.view, "home")
+    assert.equal(s.modal, "")
+    // On Home, an open history also closes after the timeout.
+    s = run(start(), { type: "modal", name: "notifications", now: 5 })
+    s = run(s, { type: "tick", now: 5 + T })
+    assert.equal(s.modal, "")
+    // Decisions still suspend it.
+    for (const m of ["confirm", "edit"]) {
+        const b = run(start(), { type: "navigate", view: "deck", now: 0 }, { type: "modal", name: m, now: 1 })
+        assert.equal(Nav.nextDeadline(b), -1, m)
+    }
+})

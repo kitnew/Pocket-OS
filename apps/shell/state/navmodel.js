@@ -9,11 +9,15 @@
 //   view      "home" | "deck" | "link"       (Base View)
 //   page      selected Control Deck page id ("" = first page)
 //   pinned    no automatic return to Home while set
-//   modal     name of an open modal Context Overlay ("" = none); suspends idle return
+//   modal     name of an open modal Context Overlay ("" = none). Modals that hold an
+//             unfinished decision (confirm, edit) suspend idle return; informational
+//             ones (SOFT_MODALS: tile details, notification history) do not — idle
+//             return closes them, so a forgotten sheet never pins the Deck.
 //   global    name of an active Global Interaction ("" = none); suspends idle return
 //   idleTimeoutMs  0 = never return automatically
 
 var VIEWS = ["home", "deck", "link"]
+var SOFT_MODALS = ["detail", "notifications"]
 var DEFAULT_IDLE_MS = 15000
 
 function initial(idleTimeoutMs, now) {
@@ -37,7 +41,9 @@ function copy(s) {
 
 // Idle return is possible only when all of these hold.
 function idleArmed(s) {
-    return s.view !== "home" && !s.pinned && s.modal === "" && s.global === "" && s.idleTimeoutMs > 0
+    var blocking = s.modal !== "" && SOFT_MODALS.indexOf(s.modal) < 0
+    var away = s.view !== "home" || s.modal !== ""
+    return away && !s.pinned && !blocking && s.global === "" && s.idleTimeoutMs > 0
 }
 
 // Absolute time (ms) at which a "tick" event changes the state, or -1 when nothing is due.
@@ -92,6 +98,7 @@ function reduce(s, ev) {
         var d = nextDeadline(n)
         if (d >= 0 && now >= d) {
             n.view = "home"
+            n.modal = ""   // only soft modals can be open here
             n.lastInteraction = now
         }
         return n

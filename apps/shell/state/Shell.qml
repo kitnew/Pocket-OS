@@ -2,6 +2,8 @@ pragma Singleton
 import QtQuick
 import Pocket.Core
 import Pocket.Platform
+import "../theme"
+import "deckmodel.js" as DeckModel
 
 // Shared shell state and actions: the one place UI components get Pocket Core, system
 // adapters and navigation from. Portable Qt Quick (no Quickshell types): compositor-
@@ -44,6 +46,24 @@ QtObject {
             dockNav.reset()     // entering Dock Mode starts at Ambient Home, unpinned
         }
         dockConfirm = null
+        dockDetail = null
+        cancelDeckEdit()
+    }
+
+    // ── System chrome (docs/dock-mode/ux-specification.md, "System chrome") ──
+    // The Dock home surface is immersive: the status and navigation bars are unmapped and
+    // the Dock draws its own compact status, a Controls button and a top-edge swipe for
+    // Quick Settings. The bars come back as soon as anything else is in front (an app,
+    // the launcher, the switcher), so handheld navigation is never lost.
+    readonly property bool immersive: docked && homeVisible && homePage === "home"
+
+    // Reduced motion: a Dock preference owned by Pocket Core (persisted), applied to the
+    // motion tokens of the whole shell.
+    readonly property bool reduceMotion: dock.preferences.reduce_motion === true
+    readonly property Binding _motion: Binding {
+        target: Theme
+        property: "reduceMotion"
+        value: shell.reduceMotion
     }
 
     function requestMode(mode) {
@@ -62,6 +82,7 @@ QtObject {
         }
         onActionFinished: (request, action, ok, code, message, data) => shell._dockFinished(request, action, ok, code, message, data)
         onActionProgress: (request, action, step, total, label) => shell._dockProgress(request, action, step, total, label)
+        onDeckSaved: (ok, error) => shell._deckSaved(ok, error)
         onDeckChanged: {
             const nav = deck.navigation || {}
             if (nav.idle_timeout_s !== undefined)
@@ -76,6 +97,7 @@ QtObject {
         onNotificationClosed: (nid) => shell._dockNotificationClosed(nid)
     }
     // Never leave a confirmation open for a link that is gone (UX spec, navigation rule 8).
+    readonly property bool dockConnected: dock.supported && dock.state === "connected"
     readonly property bool _dockLinkUp: dock.state === "connected"
     on_DockLinkUpChanged: if (!_dockLinkUp && dockConfirm !== null) {
         notify("Connection lost: " + dockConfirm.label + " was not sent", "error")
@@ -108,15 +130,59 @@ QtObject {
             all[tileId] = r
         tileResults = all
     }
+    // What a tile shows now (deckmodel.js; every input is real Core/laptop state).
+    function tileState(tile, showResult) {
+        const pending = dock.pendingActions[tile.action] !== undefined && _tileByAction[tile.action] === tile.id
+        return DeckModel.tileState(tile, dockAction(tile.action), {
+            connected: dockConnected, pending: pending, result: tileResults[tile.id] || null,
+            showResult: showResult === true, host: dock.hostName || "the laptop" })
+    }
+    // Tile details / permission explanation (modal): { tile } or null. Idle return closes
+    // it (navmodel SOFT_MODALS), so follow the navigation state.
+    property var dockDetail: null
+    readonly property string _navModal: dockNav.modal
+    on_NavModalChanged: if (_navModal !== "detail" && dockDetail !== null) dockDetail = null
+    function openTileDetail(tile) {
+        dockDetail = { tile: tile }
+        dockNav.openModal("detail")
+    }
+    function closeTileDetail() {
+        dockDetail = null
+        dockNav.closeModal()
+    }
+    // Ask the laptop owner to allow an elevated action (approved on the laptop only;
+    // access.request, ADR-0009). The outcome arrives as a new action advertisement.
+    readonly property bool canRequestAccess: {
+        const a = dockAction("access.request")
+        return a !== null && a.available
+    }
+    function canRequest(actionId) {
+        const a = dockAction("access.request")
+        const p = DeckModel.choiceParam(a)
+        return a !== null && a.available && p !== null && DeckModel.choiceLabel(p, actionId) !== ""
+    }
+    property var accessAsked: ({})   // action id -> time asked (ms), UI-owned
+    function requestAccess(actionId) {
+        diag("dock.access.request", { action: actionId })
+        const r = Object.assign({}, accessAsked)
+        r[actionId] = Date.now()
+        accessAsked = r
+        dock.execute("access.request", { action: actionId })
+    }
     // A tap on a deck tile.
     function runDeckTile(tile) {
         const a = dockAction(tile.action)
-        diag("dock.tile", { tile: tile.id, action: tile.action, advertised: a !== null })
+        const st = tileState(tile, false)
+        diag("dock.tile", { tile: tile.id, action: tile.action, advertised: a !== null, kind: st.kind })
+        if (st.kind === "unauthorized" || st.kind === "unconfigured" || st.kind === "failed" && !a.available) {
+            openTileDetail(tile)
+            return
+        }
         if (!a || !a.available || dock.pendingActions[tile.action] !== undefined)
             return
         if (a.confirm) {
             dockConfirm = { tile: tile, retry: 0, label: tile.label,
-                            text: "Run “" + tile.label + "” on " + (dock.hostName || "the computer") + "?" }
+                            text: (a.label || tile.label) + " on " + (dock.hostName || "the laptop") + "." }
             dockNav.openModal("confirm")
             return
         }
@@ -195,6 +261,12 @@ QtObject {
         if (dockBanner && dockBanner.nid === nid)
             dismissDockBanner()
     }
+    function removeDockNotification(nid) {
+        for (let i = dockNotifications.count - 1; i >= 0; --i)
+            if (dockNotifications.get(i).nid === nid)
+                dockNotifications.remove(i)
+    }
+    function humanReason(r) { return DeckModel.humanReason(r) }
     function dismissDockBanner() {
         dockBanner = null
         _bannerTimer.stop()
@@ -269,8 +341,110 @@ QtObject {
         diag("dock.action.finished", { request: request, id: action, ok: ok, code: code || "-",
                                        message: JSON.stringify(message), data: data || "-" })
         // Tiles show their own result; only untargeted requests (IPC, Link view) toast.
+        if (action === "access.request") {
+            if (ok)
+                notify("Approve the request on " + (dock.hostName || "the laptop"), "info")
+            else
+                notify(DeckModel.humanError({ code: code, text: message }), "error")
+            return
+        }
         if (!ok && tileId === undefined)
             notify(dock.hostName ? action + " on " + dock.hostName + ": " + text : text, "error")
+    }
+
+    // ── Deck editing (Core 1.5 SetDeck; issue #17) ──
+    // Edits change a working copy; Done sends it to Core, which validates and persists it.
+    // Editing never touches pending requests and never grants anything.
+    property var deckDraft: null
+    readonly property bool deckEditing: deckDraft !== null
+    property bool deckSaving: false
+    readonly property var shownDeck: deckDraft !== null ? deckDraft : dock.deck
+    function beginDeckEdit() {
+        if (!dock.deckEditable) {
+            notify("Update Pocket Core to edit the deck", "error")
+            return
+        }
+        deckDraft = DeckModel.renumber(DeckModel.clone(dock.deck))
+        dockNav.openModal("edit")
+        diag("dock.deck.edit", { begin: true })
+    }
+    function editDeck(next) { if (deckDraft !== null) deckDraft = next }
+    function cancelDeckEdit() {
+        if (deckDraft === null)
+            return
+        deckDraft = null
+        deckEditTarget = null
+        deckSaving = false
+        dockNav.closeModal()
+    }
+    function saveDeckEdit() {
+        if (deckDraft === null)
+            return
+        deckSaving = true
+        dock.setDeck(DeckModel.toJson(deckDraft))
+    }
+    function resetDeck() {
+        deckSaving = true
+        dock.resetDeck()
+    }
+    // What the editor sheet shows: null | { kind: "tile", page, index (-1 = new) } |
+    // { kind: "page", page }.
+    property var deckEditTarget: null
+    function _tileIndex(tile) { return parseInt(String(tile.id).split("/").pop()) }
+    function editDeckTile(tile) {
+        deckEditTarget = { kind: "tile", page: String(tile.id).split("/")[0], index: _tileIndex(tile) }
+    }
+    function addDeckTile(pageId) { deckEditTarget = { kind: "tile", page: pageId, index: -1 } }
+    function editDeckPage(pageId) { deckEditTarget = { kind: "page", page: pageId } }
+    function closeDeckEditor() { deckEditTarget = null }
+    function addDeckPage() {
+        if (deckDraft === null)
+            return
+        const before = deckDraft.pages.map(p => p.id)
+        editDeck(DeckModel.addPage(deckDraft, "New page"))
+        const added = deckDraft.pages.filter(p => before.indexOf(p.id) < 0)
+        if (added.length > 0) {
+            dockNav.selectPage(added[0].id)
+            editDeckPage(added[0].id)
+        }
+    }
+    // Editor operations (all on the working copy).
+    function deckOp(name, a, b, c) {
+        if (deckDraft === null)
+            return
+        const f = DeckModel[name]
+        if (typeof f === "function")
+            editDeck(f(deckDraft, a, b, c))
+    }
+    function tileOptions() { return DeckModel.options(dock.actions) }
+    function draftTile(pageId, index) {
+        if (deckDraft === null)
+            return null
+        for (const p of deckDraft.pages)
+            if (p.id === pageId)
+                return index >= 0 && index < p.tiles.length ? p.tiles[index] : null
+        return null
+    }
+    function draftPage(pageId) {
+        if (deckDraft === null)
+            return null
+        for (const p of deckDraft.pages)
+            if (p.id === pageId)
+                return p
+        return null
+    }
+
+    function _deckSaved(ok, error) {
+        diag("dock.deck.saved", { ok: ok, error: JSON.stringify(error || "") })
+        deckSaving = false
+        if (ok) {
+            deckDraft = null
+            deckEditTarget = null
+            dockNav.closeModal()
+            notify("Deck saved", "info")
+        } else {
+            notify("Deck not saved: " + error, "error")
+        }
     }
 
     readonly property AppCatalog apps: AppCatalog {
@@ -341,6 +515,12 @@ QtObject {
 
     function goHome() {
         panel = ""
+        if (docked && homeVisible && homePage === "home") {
+            // Already on the Dock: Home means Ambient Home; overlays close.
+            cancelDockConfirm()
+            if (dockDetail !== null)
+                closeTileDetail()
+        }
         osk.setVisible(false) // the launcher's search field shows it again on focus
         homePage = "home"
         homeRequested = true
