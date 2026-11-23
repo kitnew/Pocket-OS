@@ -82,7 +82,7 @@ private slots:
         startCore();
         QTRY_COMPARE(client.status(), CoreClient::Connected);
         QCOMPARE(client.mode(), QStringLiteral("handheld"));
-        QCOMPARE(client.protocol(), QStringLiteral("1.4"));
+        QCOMPARE(client.protocol(), QStringLiteral("1.5"));
         QVERIFY(client.ready());
         QCOMPARE(client.connections(), 1);
         const QString firstOwner = client.owner();
@@ -293,7 +293,7 @@ private slots:
 
         // Core 1.4 (Stage 4): deck, privileges, live state from the agent, preferences.
         QVERIFY(dock.platform());
-        QTRY_COMPARE(dock.deck().value(QStringLiteral("pages")).toList().size(), 3);
+        QTRY_COMPARE(dock.deck().value(QStringLiteral("pages")).toList().size(), 4);
         QCOMPARE(dock.deck().value(QStringLiteral("source")).toString(), QStringLiteral("default"));
         bool lockAdvertised = false;
         for (const QVariant &a : dock.actions()) {
@@ -306,6 +306,38 @@ private slots:
             }
         }
         QVERIFY(lockAdvertised);
+        // Core 1.5 (Stage 4.5): parameters with the laptop's closed lists reach QML, and
+        // `access.request` lists only elevated actions; the deck can be edited and reset.
+        bool accessListed = false;
+        for (const QVariant &a : dock.actions()) {
+            const QVariantMap m = a.toMap();
+            QVERIFY(m.value(QStringLiteral("params")).canConvert<QVariantList>());
+            if (m.value(QStringLiteral("id")).toString() == QStringLiteral("access.request")) {
+                accessListed = true;
+                const QVariantList params = m.value(QStringLiteral("params")).toList();
+                QCOMPARE(params.size(), 1);
+                QStringList choices;
+                for (const QVariant &c : params.first().toMap().value(QStringLiteral("choices")).toList())
+                    choices << c.toMap().value(QStringLiteral("value")).toString();
+                QVERIFY2(choices.contains(QStringLiteral("session.lock")), qPrintable(choices.join(',')));
+                QVERIFY(!choices.contains(QStringLiteral("desktop.notify")));
+            }
+        }
+        QVERIFY(accessListed);
+        QVERIFY(dock.deckEditable());
+        QSignalSpy saved(&dock, &DockClient::deckSaved);
+        QSignalSpy deckChanged(&dock, &DockClient::deckChanged);
+        dock.setDeck(QStringLiteral(R"({"version":1,"pages":[{"id":"mine","title":"Mine","tiles":[]}]})"));
+        QTRY_COMPARE(saved.count(), 1);
+        QCOMPARE(saved.takeFirst().at(0).toBool(), true);
+        QTRY_COMPARE(dock.deck().value(QStringLiteral("source")).toString(), QStringLiteral("user"));
+        dock.setDeck(QStringLiteral(R"({"version":1,"pages":[{"id":"x","title":"x","tiles":[{"action":"sh -c x","label":"x"}]}]})"));
+        QTRY_COMPARE(saved.count(), 1);
+        QCOMPARE(saved.takeFirst().at(0).toBool(), false); // refused, nothing changes
+        QCOMPARE(dock.deck().value(QStringLiteral("source")).toString(), QStringLiteral("user"));
+        dock.resetDeck();
+        QTRY_COMPARE(saved.count(), 1);
+        QTRY_COMPARE(dock.deck().value(QStringLiteral("source")).toString(), QStringLiteral("default"));
         QTRY_VERIFY(dock.live().contains(QStringLiteral("notifications")));
         QCOMPARE(dock.live().value(QStringLiteral("notifications")).toMap()
                      .value(QStringLiteral("data")).toMap().value(QStringLiteral("forwarding")).toBool(), false);

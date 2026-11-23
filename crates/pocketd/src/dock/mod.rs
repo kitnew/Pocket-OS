@@ -155,6 +155,12 @@ impl Shared {
                     ),
                     (action_key::IDEMPOTENT, Variant::from(a.idempotent)),
                     (action_key::CONFIRM, Variant::from(a.confirm)),
+                    (
+                        action_key::PARAMS,
+                        Variant::from(
+                            serde_json::to_string(&a.params).unwrap_or_else(|_| "[]".into()),
+                        ),
+                    ),
                 ])
             })
             .collect()
@@ -201,6 +207,10 @@ impl Shared {
             (
                 pref_key::MUTED_APPS,
                 Variant::from(self.prefs.muted_apps.clone()),
+            ),
+            (
+                pref_key::REDUCE_MOTION,
+                Variant::from(self.prefs.reduce_motion),
             ),
         ])
     }
@@ -531,7 +541,7 @@ impl DockService {
     }
 
     /// `SetPreference(s key, v value)` (since 1.4): `dnd` (b), `mute_app` (s),
-    /// `unmute_app` (s). Persisted before the call returns.
+    /// `unmute_app` (s); since 1.5 `reduce_motion` (b). Persisted before the call returns.
     fn set_preference(
         &self,
         key: &str,
@@ -542,6 +552,7 @@ impl DockService {
         let mut p = s.prefs.clone();
         match (key, &*value) {
             ("dnd", Variant::Bool(b)) => p.dnd = *b,
+            ("reduce_motion", Variant::Bool(b)) => p.reduce_motion = *b,
             ("mute_app", Variant::Str(a)) => p.mute(a.as_str()).map_err(Error::InvalidArgument)?,
             ("unmute_app", Variant::Str(a)) => p.unmute(a.as_str()),
             _ => {
@@ -576,6 +587,36 @@ impl DockService {
     ) -> Result<(), Error> {
         let d = deck::load(&self.control.dir);
         info!(sender = %sender(&hdr), source = d.source, error = %d.error, "dock: deck reloaded");
+        *self.deck.lock().unwrap_or_else(|p| p.into_inner()) = d;
+        Self::deck_changed(&emitter).await?;
+        Ok(())
+    }
+
+    /// `SetDeck(s json)` (since 1.5): validates the document (the `GetDeck` format;
+    /// tile `id`s, `source` and `error` are ignored), stores it as the user deck and emits
+    /// `DeckChanged`. An invalid document is refused (`InvalidArgument`) and changes
+    /// nothing. Pending actions are unaffected (tiles only name actions).
+    async fn set_deck(
+        &self,
+        json: &str,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let d = deck::save(&self.control.dir, json).map_err(Error::InvalidArgument)?;
+        info!(sender = %sender(&hdr), pages = d.doc["pages"].as_array().map_or(0, Vec::len), "dock: deck saved");
+        *self.deck.lock().unwrap_or_else(|p| p.into_inner()) = d;
+        Self::deck_changed(&emitter).await?;
+        Ok(())
+    }
+
+    /// `ResetDeck()` (since 1.5): removes the user deck; the built-in one applies.
+    async fn reset_deck(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let d = deck::reset(&self.control.dir).map_err(Error::InvalidArgument)?;
+        info!(sender = %sender(&hdr), "dock: deck reset to the built-in one");
         *self.deck.lock().unwrap_or_else(|p| p.into_inner()) = d;
         Self::deck_changed(&emitter).await?;
         Ok(())

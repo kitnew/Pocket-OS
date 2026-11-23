@@ -3,25 +3,41 @@
   "navigation": { "idle_timeout_s": 15 },
   "pages": [
     {
-      "id": "general",
-      "title": "General",
+      "id": "desk",
+      "title": "Desk",
       "tiles": [
-        { "action": "session.lock", "label": "Lock laptop", "icon": "lock" },
         { "action": "desktop.shortcut", "label": "Overview", "icon": "windows", "params": { "shortcut": "overview" } },
         { "action": "desktop.shortcut", "label": "Show desktop", "icon": "desktop", "params": { "shortcut": "show_desktop" } },
+        { "action": "desktop.shortcut", "label": "Previous desktop", "icon": "chevron-left", "params": { "shortcut": "desktop_previous" } },
+        { "action": "desktop.shortcut", "label": "Next desktop", "icon": "chevron-right", "params": { "shortcut": "desktop_next" } },
+        { "action": "session.lock", "label": "Lock laptop", "icon": "lock" },
+        { "action": "media.play_pause", "label": "Play / Pause", "icon": "play-pause" },
+        { "action": "volume.down", "label": "Volume −", "icon": "volume-down" },
+        { "action": "volume.up", "label": "Volume +", "icon": "volume" }
+      ]
+    },
+    {
+      "id": "apps",
+      "title": "Apps",
+      "tiles": [
+        { "action": "app.launch", "label": "Terminal", "icon": "terminal", "params": { "app": "org.kde.konsole" } },
+        { "action": "app.launch", "label": "Code", "icon": "code", "params": { "app": "code" } },
+        { "action": "app.launch", "label": "Files", "icon": "folder", "params": { "app": "org.kde.dolphin" } },
+        { "action": "app.launch", "label": "Browser", "icon": "globe", "params": { "app": "org.mozilla.firefox" } },
+        { "action": "app.launch", "label": "Screenshot", "icon": "search", "params": { "app": "org.kde.spectacle" } },
+        { "action": "app.launch", "label": "Settings", "icon": "sliders", "params": { "app": "systemsettings" } },
+        { "action": "workflow.run", "label": "Start work", "icon": "workflow", "params": { "workflow": "start-work" } },
         { "action": "desktop.notify", "label": "Ping laptop", "icon": "bell", "params": { "title": "Pocket OS", "body": "Ping from your phone" } }
       ]
     },
     {
-      "id": "development",
-      "title": "Development",
+      "id": "places",
+      "title": "Places",
       "tiles": [
-        { "action": "app.launch", "label": "Terminal", "icon": "terminal", "params": { "app": "org.kde.konsole" } },
-        { "action": "app.launch", "label": "Files", "icon": "folder", "params": { "app": "org.kde.dolphin" } },
-        { "action": "app.launch", "label": "Browser", "icon": "globe", "params": { "app": "org.mozilla.firefox" } },
-        { "action": "workflow.run", "label": "Start work", "icon": "play", "params": { "workflow": "start-work" } },
-        { "action": "desktop.shortcut", "label": "Previous desktop", "icon": "chevron-left", "params": { "shortcut": "desktop_previous" } },
-        { "action": "desktop.shortcut", "label": "Next desktop", "icon": "chevron-right", "params": { "shortcut": "desktop_next" } }
+        { "action": "desktop.open", "label": "Pocket OS", "icon": "code", "params": { "destination": "pocket-os" } },
+        { "action": "desktop.open", "label": "Projects", "icon": "folder", "params": { "destination": "projects" } },
+        { "action": "desktop.open", "label": "Downloads", "icon": "folder", "params": { "destination": "downloads" } },
+        { "action": "desktop.open", "label": "Repository", "icon": "globe", "params": { "destination": "repository" } }
       ]
     },
     {

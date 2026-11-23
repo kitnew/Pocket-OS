@@ -2,7 +2,7 @@
 //! applications, persisted in `<dock dir>/preferences.json` (0600, written atomically).
 //!
 //! ```json
-//! { "version": 1, "dnd": false, "muted_apps": ["Thunderbird"] }
+//! { "version": 1, "dnd": false, "muted_apps": ["Thunderbird"], "reduce_motion": false }
 //! ```
 //! A missing or invalid file means the defaults (DND off, nothing muted); an invalid file
 //! is logged and replaced on the next change.
@@ -19,6 +19,8 @@ pub struct Prefs {
     pub dnd: bool,
     /// Lowercased for matching; kept in insertion order.
     pub muted_apps: Vec<String>,
+    /// Dock UI: minimal animation (Core 1.5).
+    pub reduce_motion: bool,
 }
 
 pub fn path(dir: &Path) -> PathBuf {
@@ -48,6 +50,10 @@ impl Prefs {
         let mut p = Prefs {
             dnd: v.get("dnd").and_then(Value::as_bool).unwrap_or(false),
             muted_apps: Vec::new(),
+            reduce_motion: v
+                .get("reduce_motion")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         for a in v
             .get("muted_apps")
@@ -61,8 +67,9 @@ impl Prefs {
     }
 
     pub fn to_json(&self) -> String {
-        let mut s =
-            json!({"version": 1, "dnd": self.dnd, "muted_apps": self.muted_apps}).to_string();
+        let mut s = json!({"version": 1, "dnd": self.dnd, "muted_apps": self.muted_apps,
+                   "reduce_motion": self.reduce_motion})
+        .to_string();
         s.push('\n');
         s
     }
@@ -110,6 +117,7 @@ mod tests {
         assert_eq!(p.muted_apps, ["thunderbird"]);
         assert!(p.is_muted("THUNDERBIRD"));
         p.dnd = true;
+        p.reduce_motion = true;
         assert_eq!(Prefs::parse(&p.to_json()), Some(p.clone()));
         p.unmute("ThunderBird");
         assert!(!p.is_muted("thunderbird"));
@@ -139,6 +147,7 @@ mod tests {
         let p = Prefs {
             dnd: true,
             muted_apps: vec!["mail".into()],
+            reduce_motion: false,
         };
         p.save(&dir).unwrap();
         assert_eq!(Prefs::load(&dir), p);

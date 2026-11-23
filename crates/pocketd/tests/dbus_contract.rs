@@ -164,10 +164,10 @@ async fn contract_state_signals_errors_and_restart() {
     // Initial state.
     let (version, major, minor) = proxy.get_version().await.unwrap();
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
-    assert_eq!((major, minor), (1, 4));
+    assert_eq!((major, minor), (1, 5));
     let state = proxy.get_state().await.unwrap();
     assert_eq!(get::<String>(&state, "mode"), "handheld");
-    assert_eq!(get::<String>(&state, "protocol"), "1.4");
+    assert_eq!(get::<String>(&state, "protocol"), "1.5");
     assert!(get::<bool>(&state, "ready"));
     let rev0: u64 = get(&state, "revision");
     assert_eq!(proxy.get_mode().await.unwrap(), "handheld");

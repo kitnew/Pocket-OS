@@ -68,6 +68,8 @@ class DockClient : public QObject {
     Q_PROPERTY(QVariantMap preferences READ preferences NOTIFY preferencesChanged)
     // The connected core speaks contract >= 1.4.
     Q_PROPERTY(bool platform READ platform NOTIFY changed)
+    // Core 1.5: the deck can be edited (SetDeck/ResetDeck).
+    Q_PROPERTY(bool deckEditable READ deckEditable NOTIFY changed)
 
 public:
     explicit DockClient(QObject *parent = nullptr);
@@ -97,6 +99,7 @@ public:
     QVariantMap live() const { return m_live; }
     QVariantMap preferences() const { return m_prefs; }
     bool platform() const { return m_supported && m_minor >= 4; }
+    bool deckEditable() const { return m_supported && m_minor >= 5; }
 
     // Results: requestFailed(op, error) when Core rejects the call; state via changed().
     Q_INVOKABLE void connectHost();
@@ -107,6 +110,10 @@ public:
     // key (Core Retry). Same reporting as execute(); `actionId` names it for pendingActions.
     Q_INVOKABLE void retry(qulonglong request, const QString &actionId);
     Q_INVOKABLE void reloadDeck();
+    // Core 1.5: stores an edited deck (GetDeck format) / returns to the built-in deck.
+    // Result: deckSaved(ok, error); on success also deckChanged().
+    Q_INVOKABLE void setDeck(const QString &json);
+    Q_INVOKABLE void resetDeck();
     // dnd (bool), mute_app / unmute_app (string). Result: preferencesChanged or requestFailed.
     Q_INVOKABLE void setPreference(const QString &key, const QVariant &value);
 
@@ -121,6 +128,7 @@ signals:
     void actionFinished(qulonglong request, const QString &action, bool ok, const QString &code,
                         const QString &message, const QString &data);
     void deckChanged();
+    void deckSaved(bool ok, const QString &error);
     void liveChanged();
     void preferencesChanged();
     // Workflow progress of a pending request.

@@ -44,6 +44,8 @@ trait Dock {
     fn retry(&self, request: u64) -> zbus::Result<u64>;
     fn get_deck(&self) -> zbus::Result<String>;
     fn reload_deck(&self) -> zbus::Result<()>;
+    fn set_deck(&self, json: &str) -> zbus::Result<()>;
+    fn reset_deck(&self) -> zbus::Result<()>;
     fn get_live(&self) -> zbus::Result<String>;
     fn get_preferences(&self) -> zbus::Result<HashMap<String, OwnedVariant>>;
     fn set_preference(&self, key: &str, value: Variant<'_>) -> zbus::Result<()>;
@@ -426,6 +428,9 @@ async fn connect_discover_execute_and_disconnect() {
     assert_eq!(ids, ["test.echo", "test.slow", "test.off", "test.count"]);
     assert!(!get::<bool>(&actions[2], "available"));
     assert_eq!(get::<String>(&actions[2], "reason"), "switched off");
+    // Core 1.5: parameters (and their closed choices) reach the phone UI as JSON.
+    let declared: Value = serde_json::from_str(&get::<String>(&actions[0], "params")).unwrap();
+    assert!(declared.is_array(), "{declared}");
 
     // Accepted ≠ done: the reply is a request id, the outcome comes from the computer.
     let req = dock
@@ -1076,7 +1081,7 @@ async fn deck_is_validated_reloadable_and_survives_a_core_restart() {
     let deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
     assert_eq!(deck["source"], "default");
     assert_eq!(deck["navigation"]["idle_timeout_s"], 15);
-    assert_eq!(deck["pages"][0]["id"], "general");
+    assert_eq!(deck["pages"][0]["id"], "desk");
 
     let user = serde_json::json!({"version": 1, "navigation": {"idle_timeout_s": 30},
         "pages": [{"id": "mine", "title": "Mine", "tiles": [{"action": "test.echo", "label": "Echo"}]}]});
@@ -1109,6 +1114,60 @@ async fn deck_is_validated_reloadable_and_survives_a_core_restart() {
         "{}",
         deck["error"]
     );
+}
+
+#[tokio::test]
+async fn deck_edits_are_validated_persisted_and_resettable() {
+    let bus = Bus::start();
+    let dir = std::env::temp_dir().join(format!("pocket-dock-deck-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut core = Core(bus.core(&dir));
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let mut changed = dock.receive_deck_changed().await.unwrap();
+
+    // Edit what GetDeck returned (rename a page, drop a tile) and send it back.
+    let mut deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    deck["pages"][0]["title"] = Value::from("Desk");
+    deck["pages"][0]["tiles"].as_array_mut().unwrap().remove(0);
+    dock.set_deck(&deck.to_string()).await.unwrap();
+    timeout(WAIT, changed.next()).await.unwrap().unwrap();
+    let now: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(
+        (now["source"].as_str(), now["pages"][0]["title"].as_str()),
+        (Some("user"), Some("Desk"))
+    );
+
+    // Invalid edits are refused and change nothing.
+    let mut bad = now.clone();
+    bad["pages"][0]["tiles"][0]["action"] = Value::from("sh -c x");
+    let e = dock.set_deck(&bad.to_string()).await.unwrap_err();
+    assert!(e.to_string().contains("InvalidArgument"), "{e}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&dock.get_deck().await.unwrap()).unwrap(),
+        now
+    );
+
+    // Survives a Core restart.
+    core.terminate();
+    let _core = Core(bus.core(&dir));
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let after: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(after["pages"][0]["title"], "Desk");
+
+    dock.reset_deck().await.unwrap();
+    let reset: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(
+        (
+            reset["source"].as_str(),
+            reset["pages"][0]["title"].as_str()
+        ),
+        (Some("default"), Some("Desk"))
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]

@@ -6,6 +6,7 @@
 #include <QDBusPendingReply>
 #include <QDBusVariant>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QLoggingCategory>
 
@@ -197,8 +198,12 @@ void DockClient::fetchActions()
             return;
         }
         QVariantList list;
-        for (const QVariantMap &a : reply.value())
+        for (QVariantMap a : reply.value()) {
+            // Core 1.5: parameters (with the laptop's closed `choices` lists) as JSON.
+            const QJsonDocument doc = QJsonDocument::fromJson(a.value(QStringLiteral("params")).toString().toUtf8());
+            a.insert(QStringLiteral("params"), doc.isArray() ? doc.array().toVariantList() : QVariantList());
             list.append(a);
+        }
         m_actions = list;
         qCInfo(lcDock) << "actions:" << m_actions.size();
         emit actionsChanged();
@@ -460,6 +465,42 @@ void DockClient::onNotificationClosed(const QString &nid)
 }
 
 void DockClient::reloadDeck() { call(QStringLiteral("ReloadDeck"), QStringLiteral("reload deck")); }
+
+void DockClient::setDeck(const QString &json)
+{
+    if (!deckEditable()) {
+        emit deckSaved(false, QStringLiteral("Pocket Core cannot save the deck (update pocketd)"));
+        return;
+    }
+    auto msg = QDBusMessage::createMethodCall(kService, kPath, kInterface, QStringLiteral("SetDeck"));
+    msg << json;
+    auto *w = new QDBusPendingCallWatcher(m_core->bus().asyncCall(msg, kCallTimeoutMs), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *c) {
+        c->deleteLater();
+        QDBusPendingReply<> reply = *c;
+        if (reply.isError()) {
+            qCWarning(lcDock).noquote() << "save deck failed:" << dbusErrorText(reply.error());
+            emit deckSaved(false, reply.error().message());
+            return;
+        }
+        emit deckSaved(true, QString());
+    });
+}
+
+void DockClient::resetDeck()
+{
+    if (!deckEditable()) {
+        emit deckSaved(false, QStringLiteral("Pocket Core cannot reset the deck (update pocketd)"));
+        return;
+    }
+    auto msg = QDBusMessage::createMethodCall(kService, kPath, kInterface, QStringLiteral("ResetDeck"));
+    auto *w = new QDBusPendingCallWatcher(m_core->bus().asyncCall(msg, kCallTimeoutMs), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *c) {
+        c->deleteLater();
+        QDBusPendingReply<> reply = *c;
+        emit deckSaved(!reply.isError(), reply.isError() ? reply.error().message() : QString());
+    });
+}
 
 void DockClient::setPreference(const QString &key, const QVariant &value)
 {

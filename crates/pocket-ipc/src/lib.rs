@@ -15,8 +15,9 @@ use std::str::FromStr;
 /// [`dbus::apps`] (Stage 2); 1.2 adds the Dock object [`dbus::dock`] (Stage 3); 1.3 adds
 /// the Dock state keys `retry_in_ms` and `connection_wanted` (Stage 3.1); 1.4 adds the
 /// Dock platform members (deck, retry, live state, notifications; Stage 4,
-/// docs/dock-mode/protocol.md).
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 4 };
+/// docs/dock-mode/protocol.md); 1.5 adds `SetDeck`/`ResetDeck` (on-phone deck editing,
+/// Stage 4.5).
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 5 };
 
 /// D-Bus names of the core service (session bus).
 pub mod dbus {
@@ -111,6 +112,9 @@ pub mod dbus {
     /// `SetPreference(s, v)`; signals `DeckChanged()`, `LiveChanged(s topic, s json)`,
     /// `ActionProgress(t request, u step, u total, s label)`, `Notification(s json)`,
     /// `NotificationClosed(s nid)`. Error `…Error.UnknownRequest`.
+    ///
+    /// Since 1.5 (Stage 4.5): `SetDeck(s json)` (validated, persisted, emits
+    /// `DeckChanged`; invalid → `InvalidArgument`, nothing changes) and `ResetDeck()`.
     pub mod dock {
         pub const OBJECT_PATH: &str = "/org/pocketos/Core1/Dock";
         pub const INTERFACE: &str = "org.pocketos.Core1.Dock";
@@ -162,6 +166,10 @@ pub mod dbus {
             pub const IDEMPOTENT: &str = "idempotent";
             /// `b`: the UI asks before sending it (since 1.4).
             pub const CONFIRM: &str = "confirm";
+            /// `s`: the parameters as a JSON array of `{name, kind, required, choices:
+            /// [{value, label}], min, max}` (protocol.md; since 1.5). The phone UI uses the
+            /// `choices` (the laptop's closed lists) to configure tiles.
+            pub const PARAMS: &str = "params";
         }
 
         /// Keys of `GetPreferences` (since 1.4). `SetPreference` keys: `dnd` (b),
@@ -171,6 +179,8 @@ pub mod dbus {
             pub const DND: &str = "dnd";
             /// `as`: applications whose notifications are dropped.
             pub const MUTED_APPS: &str = "muted_apps";
+            /// `b`: the Dock UI uses minimal animation (since 1.5).
+            pub const REDUCE_MOTION: &str = "reduce_motion";
         }
     }
 }
@@ -306,7 +316,7 @@ mod tests {
         assert!(v(1, 0).is_compatible_with(v(1, 2)));
         assert!(!v(1, 2).is_compatible_with(v(1, 0)));
         assert!(!v(2, 0).is_compatible_with(v(1, 9)));
-        assert_eq!(PROTOCOL_VERSION.to_string(), "1.4");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "1.5");
     }
 
     #[test]

@@ -86,6 +86,49 @@ pub fn load(dir: &Path) -> Deck {
     }
 }
 
+/// Validates `text` and stores it as the user deck (atomically: temp file + rename).
+/// Returns the loaded deck; an invalid document changes nothing.
+pub fn save(dir: &Path, text_in: &str) -> Result<Deck, String> {
+    if text_in.len() as u64 > MAX_FILE {
+        return Err(format!("larger than {MAX_FILE} bytes"));
+    }
+    let doc = validate(text_in)?;
+    // Store the normalized form without generated tile ids (they are positional).
+    let mut stored = doc.clone();
+    if let Some(pages) = stored["pages"].as_array_mut() {
+        for p in pages {
+            if let Some(tiles) = p["tiles"].as_array_mut() {
+                for t in tiles {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove("id");
+                    }
+                }
+            }
+        }
+    }
+    let mut text = serde_json::to_string_pretty(&stored).map_err(|e| e.to_string())?;
+    text.push('\n');
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = user_path(dir);
+    let tmp = dir.join(".deck.json.new");
+    std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Deck {
+        doc,
+        source: "user",
+        error: String::new(),
+    })
+}
+
+/// Removes the user deck: the built-in one applies again.
+pub fn reset(dir: &Path) -> Result<Deck, String> {
+    match std::fs::remove_file(user_path(dir)) {
+        Ok(()) => Ok(builtin()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(builtin()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn fallback(error: String) -> Deck {
     tracing::warn!(%error, "dock: invalid deck configuration; using the built-in deck");
     Deck { error, ..builtin() }
@@ -125,7 +168,12 @@ fn only_keys(o: &Map<String, Value>, allowed: &[&str], at: &str) -> Result<(), S
 pub fn validate(text_in: &str) -> Result<Value, String> {
     let root: Value = serde_json::from_str(text_in).map_err(|e| format!("not JSON: {e}"))?;
     let root = root.as_object().ok_or("the deck must be a JSON object")?;
-    only_keys(root, &["version", "navigation", "pages"], "deck")?;
+    // `source`/`error` are GetDeck metadata; accepted and ignored for round trips.
+    only_keys(
+        root,
+        &["version", "navigation", "pages", "source", "error"],
+        "deck",
+    )?;
     if root.get("version").and_then(Value::as_u64) != Some(SCHEMA_VERSION) {
         return Err(format!("\"version\" must be {SCHEMA_VERSION}"));
     }
@@ -175,7 +223,9 @@ pub fn validate(text_in: &str) -> Result<Value, String> {
         for (ti, tile) in tiles.iter().enumerate() {
             let at = format!("{at}.tiles[{ti}]");
             let tile = tile.as_object().ok_or(format!("{at} must be an object"))?;
-            only_keys(tile, &["action", "label", "icon", "params"], &at)?;
+            // `id` is generated (page/index); accepted and ignored so a GetDeck document
+            // can be edited and sent back as is.
+            only_keys(tile, &["id", "action", "label", "icon", "params"], &at)?;
             let action = tile
                 .get("action")
                 .and_then(Value::as_str)
@@ -247,9 +297,9 @@ mod tests {
             .iter()
             .map(|p| p["id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids, ["general", "development", "media"]);
+        assert_eq!(ids, ["desk", "apps", "places", "media"]);
         assert_eq!(d.doc["navigation"]["idle_timeout_s"], 15);
-        assert_eq!(d.doc["pages"][0]["tiles"][0]["id"], "general/0");
+        assert_eq!(d.doc["pages"][0]["tiles"][0]["id"], "desk/0");
     }
 
     #[test]
@@ -283,6 +333,7 @@ mod tests {
             tile(json!({"action": "a.b", "label": "x", "params": {"p": {"nested": 1}}})),
             tile(json!({"action": "a.b", "label": "x", "params": {"p": "x".repeat(501)}})),
             tile(json!({"action": "a.b", "label": "x", "cmd": "sh"})),
+            tile(json!({"action": "a.b", "label": "x", "id": "z/9", "exec": "sh"})),
         ];
         for c in cases {
             assert!(validate(&c).is_err(), "accepted: {c}");
@@ -316,6 +367,42 @@ mod tests {
         assert!(d.error.contains("not JSON"), "{}", d.error);
         let v: Value = serde_json::from_str(&d.to_json()).unwrap();
         assert_eq!(v["source"], "default");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_round_trips_get_deck_and_rejects_invalid_edits() {
+        let dir = std::env::temp_dir().join(format!("pocket-deck-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A GetDeck document (with ids, source, error) can be edited and saved back.
+        let mut doc: Value = serde_json::from_str(&builtin().to_json()).unwrap();
+        doc["pages"][0]["title"] = json!("Main");
+        let tiles = doc["pages"][0]["tiles"].as_array_mut().unwrap();
+        tiles.swap(0, 1);
+        tiles.pop();
+        let d = save(&dir, &doc.to_string()).unwrap();
+        assert_eq!(d.source, "user");
+        assert_eq!(d.doc["pages"][0]["title"], "Main");
+        assert_eq!(d.doc["pages"][0]["tiles"][0]["label"], "Show desktop");
+        assert_eq!(
+            d.doc["pages"][0]["tiles"][0]["id"], "desk/0",
+            "ids are positional"
+        );
+        let stored = std::fs::read_to_string(user_path(&dir)).unwrap();
+        assert!(!stored.contains("\"source\""), "metadata is not stored");
+        assert_eq!(load(&dir).doc, d.doc, "survives a restart");
+
+        let before = std::fs::read_to_string(user_path(&dir)).unwrap();
+        doc["pages"][0]["tiles"][0]["action"] = json!("rm -rf /");
+        assert!(save(&dir, &doc.to_string()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(user_path(&dir)).unwrap(),
+            before,
+            "unchanged"
+        );
+
+        assert_eq!(reset(&dir).unwrap().source, "default");
+        assert_eq!(load(&dir).source, "default");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
