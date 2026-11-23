@@ -211,19 +211,21 @@ Log line: `dock: network changed; retrying sooner was_in_ms=… now_in_ms=…`. 
   Check it with `pocket-ctl ui state` (`retryMs` vs `retryShown`) against
   `pocket-ctl dock GetState` (`retry_in_ms`). They agree within a few hundred ms.
 
-## Stage 4: Dock platform (Home, Control Deck, host actions, live state, notifications)
+## Stage 4 / 4.5: Dock platform (Home, Control Deck, host actions, live state, notifications)
 
 Design: [`docs/dock-mode/`](../dock-mode/), [ADR-0008](../decisions/0008-dock-platform.md).
-Validation: [`validation/stage4.md`](../validation/stage4.md).
+Validation: [`validation/stage4.md`](../validation/stage4.md), [`validation/stage4.5.md`](../validation/stage4.5.md) (UX overhaul, [ADR-0009](../decisions/0009-dock-ux-and-access.md)).
 
 ### Where things live
 
 | Where | What |
 |---|---|
-| `apps/shell/features/dock/` | `DockView` (rail + layers), `AmbientHome`, `ControlDeck`/`DeckTile`, `LinkView` (Stage 3 page), widgets, `ConfirmSheet`, `NotificationBanner`, `NotificationsSheet` |
+| `apps/shell/features/dock/` | `DockView` (rail, view transitions, top-edge Controls swipe, overlays), `AmbientHome` (+`MediaCard`, `VitalsStrip`), `ControlDeck`/`DeckTile`, `LaptopView` (link + permissions), `DockStatus`, sheets: `ConfirmSheet`, `TileDetailSheet`, `TileEditorSheet`, `NotificationsSheet`, `NotificationBanner` |
 | `apps/shell/state/navmodel.js`, `DockNav.qml` | Navigation state machine (pure; `tests/shell/navmodel.test.mjs`) and its single timer |
+| `apps/shell/state/deckmodel.js` | Tile kinds, human copy, picker options, deck edit operations (pure; `tests/shell/deckmodel.test.mjs`) |
+| `apps/shell/theme/Theme.qml`, `apps/shell/components/` | Design tokens and primitives ([design system](../dock-mode/design-system.md)) |
 | `crates/pocketd/src/dock/deck.rs`, `prefs.rs` | Deck configuration, notification preferences |
-| `crates/pocket-desktop-agent/src/actions/` | `media`, `kde` (volume, desktop shortcuts), `apps`, `session`, `notify`; registry with grants and workflows |
+| `crates/pocket-desktop-agent/src/actions/` | `media`, `kde` (volume, desktop shortcuts), `apps`, `destinations` (`desktop.open`), `session`, `notify`, `access` (`access.request`); registry with live grants, lists and workflows |
 | `crates/pocket-desktop-agent/src/{mpris,live,notifications}.rs` | MPRIS tracker, live topics, notification monitor |
 | `config/dock/deck.json` | Built-in deck (compiled into pocketd) |
 
@@ -231,20 +233,37 @@ Validation: [`validation/stage4.md`](../validation/stage4.md).
 
 Basic actions (notification, media transport, system volume) work out of the box.
 Elevated ones need an explicit grant; read the caveat in ADR-0008 first (any program in
-the phone's session can use a granted action, #8).
+the phone's session can use a granted action, #8). Two ways to grant:
+
+- **From the phone, approved on the laptop** (Stage 4.5, ADR-0009): a tile that "Needs
+  permission" → **Ask <laptop>**, or Laptop view ▸ Permissions ▸ **Ask**. The laptop shows
+  an *Allow / Deny* notification; Allow grants and saves it. The phone cannot grant.
+- **On the laptop's command line:**
 
 ```sh
 pocket-desktop-agent grant session.lock          # Lock laptop tile (asks on the phone first)
 pocket-desktop-agent grant desktop.shortcut      # Overview, Show desktop, Next/Previous desktop
 pocket-desktop-agent grant app.launch
 pocket-desktop-agent apps add org.kde.konsole    # only registered desktop IDs can be launched
-pocket-desktop-agent apps add org.kde.dolphin
+pocket-desktop-agent apps add code               # find IDs: ls /usr/share/applications
+pocket-desktop-agent grant desktop.open          # destinations (#16):
+pocket-desktop-agent destinations add pocket-os "Pocket OS" code ~/Projects/Pocket-OS
+pocket-desktop-agent destinations add downloads "Downloads" org.kde.dolphin ~/Downloads
 pocket-desktop-agent grant workflow.run          # plus "workflows" in config.json (below)
 pocket-desktop-agent notifications on            # forward desktop notifications (off by default)
-pocket-desktop-agent show                        # grants, apps, workflows, forwarding
+pocket-desktop-agent show                        # grants, apps, destinations, workflows, forwarding
 pocket-desktop-agent revoke app.launch
-systemctl --user restart pocket-desktop-agent    # every change applies after a restart
 ```
+
+Every editing command applies to the running agent immediately (it sends SIGHUP;
+`systemctl --user reload pocket-desktop-agent` after editing config.json by hand). Only
+the listen address, identity, trusted phones and notification forwarding need
+`systemctl --user restart pocket-desktop-agent`. Destination targets are absolute or
+`~/` paths or http(s) URLs, opened through the app's own `%f/%u` field code.
+
+Apps the phone starts run as transient user services (`app-pocket-dock-*.service`,
+`systemctl --user list-units 'app-pocket-dock-*'`), outside the agent's sandbox: they can
+write files and survive an agent restart.
 
 Workflows and notification filters are edited in
 `~/.config/pocket-desktop-agent/config.json` (keep it 0600):
@@ -262,8 +281,12 @@ The agent refuses a config with nested workflows or more than 10 steps.
 
 ### Customising the Control Deck (on the phone)
 
-Copy `config/dock/deck.json` to `~/.config/pocket-os/dock/deck.json`, edit it, then
-`pocket-ctl dock ReloadDeck` (or restart the core). Schema and limits:
+On the phone: Deck ▸ ✎ (edit mode) — add, remove, reorder, rename, move tiles between
+pages, choose icons and what each tile does from the laptop's offered actions; rename,
+move, add and remove pages; reset to the default. **Done** saves through Core 1.5
+`SetDeck` (same validation as the file). By hand: copy `config/dock/deck.json` to
+`~/.config/pocket-os/dock/deck.json`, edit it, then `pocket-ctl dock ReloadDeck` (or
+restart the core). Schema and limits:
 [architecture](../dock-mode/architecture.md#deck-configuration). An invalid file is
 reported (toast + `pocket-ctl ui state` → `dock.deck.error`) and the built-in deck is
 used. `navigation.idle_timeout_s` sets the idle return (0 = never).
@@ -272,11 +295,16 @@ used. `navigation.idle_timeout_s` sets the idle return (0 = never).
 
 ```sh
 pocket-ctl ui nav deck | home | link | pin | unpin | page:media | notifications | close | touch
-pocket-ctl ui tile general/0          # tap a tile by id (page/index): "confirm" if it asks
+pocket-ctl ui nav edit | save | cancel | addtile[:PAGE] | editpage[:PAGE] | closeeditor
+pocket-ctl ui nav access:session.lock # Ask the laptop (Allow/Deny prompt there)
+pocket-ctl ui tile desk/4             # tap a tile by id (page/index): "confirm" if it asks
+pocket-ctl ui tileinfo desk/4         # long press: details (editor in edit mode); prints the tile kind
+pocket-ctl ui motion true|false       # Reduce motion (Core preference)
 pocket-ctl ui confirm true|false      # answer the confirmation sheet
 pocket-ctl ui dnd true|false
-pocket-ctl ui state                   # dock.nav, dock.deck, dock.live, dock.tiles, dock.prefs,
-                                      # dock.privileges, dock.notifications, dock.banner
+pocket-ctl ui state                   # dock.nav, dock.deck, dock.live, dock.tiles, dock.tileKinds,
+                                      # dock.prefs, dock.privileges, dock.immersive, dock.editing,
+                                      # dock.notifications, dock.banner
 pocket-ctl dock GetLive | GetDeck | GetPreferences
 pocket-ctl dock Retry uint64:<request>   # resend an unknown outcome with its key
 pocket-ctl dock Execute string:app.launch dict:string:variant:app,variant:string:org.kde.kcalc
@@ -286,8 +314,10 @@ pocket-ctl dock Execute string:app.launch dict:string:variant:app,variant:string
 
 | Symptom | Check |
 |---|---|
-| Tile says "Not granted on <laptop>" | `pocket-desktop-agent show`; grant + restart the agent |
-| Tile says "Not offered by <laptop>" | The agent has no such action (old agent, or `workflow.run` with no workflows) |
+| Tile says "Needs permission" | Ask from the phone (approve on the laptop) or `pocket-desktop-agent grant ID` |
+| Tile says "Not set up" | The tile names an app/place/workflow the laptop does not offer: `apps add` / `destinations add` / config.json, or edit the tile |
+| Tile says "Not on <laptop>" | The agent has no such action (old agent, or `workflow.run` with no workflows) |
+| "Ask" does nothing visible on the laptop | Agent log `access: asked the laptop owner`; the prompt is a normal notification (DND on the laptop hides it) |
 | `desktop.shortcut` / `volume.*` unavailable | KDE kglobalaccel missing: agent log `kde: global shortcuts components=[…]` |
 | No media widget | Agent log `mpris: players`; `pocket-ctl dock GetLive` → `media` |
 | No notifications | `pocket-desktop-agent show` (forwarding), agent log `notifications: monitoring…`, phone `dock.prefs` (muted, DND) |
@@ -301,11 +331,15 @@ Logs never contain notification text: the agent logs `nid` and `redacted`, the p
 
 | Test | Command |
 |---|---|
-| Navigation model | `node --test tests/shell/navmodel.test.mjs` (in `scripts/check.sh`) |
+| Navigation and deck models | `node --test tests/shell/*.test.mjs` (in `scripts/check.sh`) |
 | Deck, prefs, registry authorization, workflows, dedup, MPRIS/KDE/ScreenSaver/notification fakes, app launching | `cargo test -p pocketd -p pocket-desktop-agent` |
-| Core 1.4 contract (deck reload/restart, Retry with dedup, live clear/resync, 1.0 agent, notification prefs) | `cargo test -p pocketd --test dock_contract` |
-| Bridge (`DockClient` 1.4) | `scripts/test-device.sh` |
-| Hardware | `scripts/dock-platform-e2e.sh` (~3 min; temporary narrow test policy, restored on exit) |
+| Core 1.5 contract (deck reload/restart, SetDeck/ResetDeck, params, Retry with dedup, live clear/resync, 1.0 agent, notification prefs) | `cargo test -p pocketd --test dock_contract` |
+| Access requests, destinations, live reload | `cargo test -p pocket-desktop-agent --test protocol` |
+| Bridge (`DockClient` 1.5) | `scripts/test-device.sh` |
+| Hardware | `scripts/dock-platform-e2e.sh` (~4 min; temporary narrow test policy, restored on exit) |
+
+Shell QML changes: `scripts/shell-deploy.sh` runs qmllint on the device and deploys only if
+it is clean (a QML error otherwise crash-loops the shell).
 
 ## Security boundary
 

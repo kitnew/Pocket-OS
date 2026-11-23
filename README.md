@@ -6,7 +6,7 @@ the phone into a configurable desktop control surface. It runs on top of an ordi
 postmarketOS/Alpine system and standard Linux services. It is not a new distribution and
 does not include a custom compositor.
 
-**Status: Stage 4 (Dock Mode platform) implemented; physical touch pass pending** ([#9](https://github.com/kitnew/Pocket-OS/issues/9), [validation](docs/validation/stage4.md)). On the phone, Pocket OS is a usable
+**Status: Stage 4.5 (Dock UX overhaul) implemented** ([#19](https://github.com/kitnew/Pocket-OS/issues/19), [validation](docs/validation/stage4.5.md), [ADR-0009](docs/decisions/0009-dock-ux-and-access.md)). On the phone, Pocket OS is a usable
 touchscreen shell (the session is started manually). It has:
 - a Home screen and a launcher with search;
 - real application launching through Pocket Core;
@@ -20,10 +20,13 @@ touchscreen shell (the session is started manually). It has:
 - **Dock Mode**: the docked phone becomes a companion for a trusted computer. A small
   desktop agent runs on the computer; the link is authenticated and encrypted (Noise, over
   USB networking). **Ambient Home** shows a large clock, the link, the phone battery and
-  live laptop state (now playing with controls, battery, lock, CPU/memory). The
-  **Control Deck** runs configurable action tiles (media, system volume, KDE desktop
-  shortcuts, app launching, screen lock, workflows) with confirmed results and safe
-  retries. Laptop **notifications** appear as banners with Do Not Disturb and per-app
+  live laptop state (now playing with controls, battery, lock, CPU/memory) on an
+  immersive landscape screen (no system bars; Controls via the rail or a top-edge swipe).
+  The **Control Deck** runs configurable action tiles (media, system volume, KDE desktop
+  shortcuts, app launching, project folders and links, screen lock, workflows) on
+  swipeable pages, with confirmed results, safe retries and plain-language states, and can
+  be **edited on the phone**. Elevated actions can be requested from the phone and are
+  approved on the laptop. Laptop **notifications** appear as banners with Do Not Disturb and per-app
   mute. Navigation returns to Home after 15 s unless pinned. Actions beyond harmless ones
   must be granted on the computer (ADR-0008). Pairing: `scripts/dock-pair.sh`.
 
@@ -84,8 +87,9 @@ Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and the de
 [ADR-0005 apps, windows & compositor](docs/decisions/0005-applications-and-window-management.md),
 [ADR-0006 secure lock screen](docs/decisions/0006-secure-lock-screen.md),
 [ADR-0007 Dock architecture](docs/decisions/0007-dock-architecture.md),
-[ADR-0008 Dock platform](docs/decisions/0008-dock-platform.md).
-Dock Mode product and technical documentation (Stage 4): [`docs/dock-mode/`](docs/dock-mode/)
+[ADR-0008 Dock platform](docs/decisions/0008-dock-platform.md), [ADR-0009 Dock UX and access](docs/decisions/0009-dock-ux-and-access.md).
+Dock Mode product and technical documentation (Stage 4/4.5): [`docs/dock-mode/`](docs/dock-mode/)
+(including the [design system](docs/dock-mode/design-system.md))
 ([vision](docs/dock-mode/product-vision.md), [UX](docs/dock-mode/ux-specification.md),
 [architecture](docs/dock-mode/architecture.md), [protocol](docs/dock-mode/protocol.md),
 [roadmap](docs/dock-mode/roadmap.md)).
@@ -136,7 +140,8 @@ scripts/boot-backup.sh backup    # before any apk operation (it may re-flash the
 ssh lavender pocket-os/bin/pocket-ctl ui state   # shell state (windows, panels, adapters)
 scripts/dock-pair.sh             # Dock: install the desktop agent here, pair it with the phone
 scripts/dock-e2e.sh              # Dock end-to-end test (phone session + this computer's agent)
-scripts/dock-platform-e2e.sh     # Stage 4 Dock platform end-to-end test (Home, Deck, actions, notifications)
+scripts/dock-platform-e2e.sh     # Stage 4/4.5 Dock end-to-end test (Home, Deck, actions, editing, notifications)
+scripts/shell-deploy.sh          # deploy shell QML after qmllint passes on the device
 pocket-desktop-agent grant session.lock   # allow an elevated laptop action (docs/development/dock.md)
 scripts/logs.sh                  # fetch logs, print events
 scripts/session.sh stop          # back to the tty1 console

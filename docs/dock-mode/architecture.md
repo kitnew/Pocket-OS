@@ -1,4 +1,9 @@
-# Dock Mode: architecture (Stage 4)
+# Dock Mode: architecture (Stage 4, amended in Stage 4.5)
+
+Stage 4.5 ([ADR-0009](../decisions/0009-dock-ux-and-access.md)): immersive Dock (system bars
+follow the surface in front), Core 1.5 deck editing (`SetDeck`/`ResetDeck`) and action
+parameters, live agent configuration (SIGHUP), `desktop.open` destinations,
+laptop-approved `access.request`, and app launches as transient user services.
 
 Status: **implemented (Stage 4)**, extending the Stage 3/3.1 foundation
 ([ADR-0007](../decisions/0007-dock-architecture.md)). Decisions and their tradeoffs:
@@ -89,7 +94,9 @@ and keeps a short history in memory.
 `deck.json` (schema v1). The built-in default is `config/dock/deck.json`, compiled into
 pocketd; a user file at `~/.config/pocket-os/dock/deck.json` replaces it. Core validates
 it completely; an invalid user file is reported (`GetDeck` → `error`) and the default is
-used. `pocket-ctl dock ReloadDeck` re-reads it.
+used. `pocket-ctl dock ReloadDeck` re-reads it. Since Core 1.5 the phone's deck editor
+saves through `SetDeck` (same validation; atomic write) and `ResetDeck` returns to the
+default.
 
 ```json
 { "version": 1,
@@ -115,7 +122,8 @@ the agent's advertisement, so one deck works with any laptop.
    `basic` actions (harmless if any program on the phone triggers them: notification,
    media transport, system volume) are enabled by default. `elevated` actions (app
    launch, desktop shortcuts, lock, workflows containing elevated steps) run only if the
-   laptop user **granted** them (`pocket-desktop-agent grant <id>`). Parameters with
+   laptop user **granted** them (`pocket-desktop-agent grant <id>`, or *Allow* on the
+   laptop's prompt after the phone asked with `access.request`, ADR-0009). Parameters with
    fixed choices (registered apps, approved shortcuts, configured workflows) are checked
    against the laptop's lists, never interpreted.
 3. **Never implemented:** arbitrary keys/text/pointer, commands or scripts, file or URL

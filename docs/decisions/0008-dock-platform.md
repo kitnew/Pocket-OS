@@ -5,6 +5,8 @@
 - Date: 2026-11-23
 - Amends: [ADR-0007](0007-dock-architecture.md) (action contract, protocol 1.1, Core 1.4)
 - Related: [#8](https://github.com/kitnew/Pocket-OS/issues/8) (local caller authorization)
+- Amended by: [ADR-0009](0009-dock-ux-and-access.md) (laptop-approved access requests, live
+  configuration, app launch outside the agent sandbox)
 
 ## Context
 

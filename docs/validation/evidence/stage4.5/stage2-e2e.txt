@@ -1,0 +1,77 @@
+== 1. shell services and adapters
+PASS  shell connected to Core
+PASS  home visible with no windows
+PASS  power key grabbed through phosh_private
+PASS  on-screen keyboard service present
+PASS  battery from UPower
+PASS  Wi-Fi device from NetworkManager
+PASS  Bluetooth adapter from BlueZ
+PASS  accelerometer from iio-sensor-proxy
+      screenshot /tmp/pocket-e2e/1-home.png
+== 2. application catalog (Core) mirrored by the shell, live updates
+PASS  catalog has 4 apps
+PASS  foot in the Core catalog
+PASS  new desktop file picked up (inotify -> AppsChanged -> shell)
+== 3. launch, window, home hidden
+PASS  launch requested through Core
+PASS  foot window appeared (foreign toplevel)
+PASS  home hidden over the app
+PASS  window listed and active
+      screenshot /tmp/pocket-e2e/3-foot.png
+== 4. home and reactivation without duplicates
+PASS  home shown over the running app
+PASS  app keeps running behind home
+      screenshot /tmp/pocket-e2e/4-home-running.png
+PASS  second open reactivates the window
+PASS  home hidden again
+PASS  no duplicate process (1 foot)
+== 5. switcher with two apps
+PASS  second app window (matched via StartupWMClass)
+PASS  switcher page shown
+PASS  both windows listed
+      screenshot /tmp/pocket-e2e/5-switcher.png
+PASS  activate request sent for foot
+PASS  home hidden after switching
+SKIP  compositor activation (shell has received no touch input since start)
+== 6. launch failures are visible
+PASS  early non-zero exit reported by Core
+PASS  error toast shown
+PASS  unknown app: typed error toast
+== 7. close windows -> back home
+PASS  widget factory window closed
+PASS  foot window closed
+PASS  home shown when no windows remain
+PASS  home page (not an empty switcher) when no windows remain
+PASS  keyboard hidden when no windows remain
+PASS  foot process ended
+== 8. quick settings, brightness
+PASS  quick settings open
+      screenshot /tmp/pocket-e2e/8-quicksettings.png
+PASS  brightness changed through logind (3116 -> 1024)
+PASS  quick settings closed
+== 9. rotation (wlr-output-management)
+PASS  output transform applied
+PASS  compositor reports transform 90
+PASS  home relaid out in landscape
+      screenshot /tmp/pocket-e2e/9-landscape.png
+PASS  back to portrait
+PASS  compositor reports transform normal
+== 10. display power (wlr-output-power-management)
+PASS  display off reported
+PASS  compositor output disabled
+PASS  display on reported
+PASS  compositor output enabled
+== 11. on-screen keyboard control and recovery
+PASS  keyboard shown (shell follows sm.puri.OSK0)
+PASS  keyboard hidden
+PASS  keyboard restarted without reboot
+PASS  shell sees the restarted keyboard
+== 12. apps survive shell and core restarts
+PASS  foot running
+PASS  app survived shell restart
+PASS  restarted shell lists the existing window
+PASS  app survived core restart
+PASS  shell reconnected to the new core
+PASS  app closed
+
+stage2 e2e: 56 passed, 0 failed, 1 skipped

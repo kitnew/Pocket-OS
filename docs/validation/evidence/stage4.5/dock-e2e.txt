@@ -1,0 +1,104 @@
+== 0. preconditions
+PASS  agent service active
+PASS  phone session running
+PASS  shell answers over IPC (0s)
+PASS  handheld, portrait, disconnected (0s)
+== 1. Dock Mode without a computer
+PASS  Core reports dock; output landscape (0s)
+PASS  rotation preference untouched
+PASS  Dock page is the home page
+PASS  auto-connect fails visibly: error unreachable, retry scheduled (0s)
+PASS  no actions without a computer
+PASS  IPC dockAction → not offered
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-no-computer.png
+== 2. leave Dock Mode without a connection
+PASS  handheld, portrait restored (0s)
+PASS  Disconnect stops retrying (0s)
+== 3. agent available: enter Dock Mode, connect, discover
+PASS  connected after entering Dock Mode (0s)
+PASS  capabilities: desktop.notify available
+PASS  capabilities: media.play_pause listed
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-connected.png
+== 4. real desktop action
+PASS  dispatch accepted
+PASS  phone shows the computer's confirmation (0s)
+PASS  agent log: notification 42 shown by the desktop
+PASS  same notification id confirmed on the phone
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-action-done.png
+== 4b. leave and re-enter: the rotation preference is the user's
+PASS  handheld restores the landscape preference (0s)
+PASS  connection outlives Dock Mode
+PASS  portrait preference applied in handheld (0s)
+PASS  Dock Mode forces landscape again, preference stays portrait (0s)
+== 4c. Disconnect while docked sticks
+PASS  disconnected in Dock Mode (0s)
+PASS  no automatic reconnect after the user's Disconnect
+PASS  Connect button path reconnects (0s)
+== 5. unknown action rejected
+PASS  Core rejects unknown action (UnknownAction)
+PASS  Core rejects shell-like action id
+== 6. agent restart
+PASS  phone sees the disconnect (0s)
+PASS  reconnects by itself (1s)
+== 7. agent stopped (unexpected disconnection), then back
+PASS  disconnection detected: error + retry scheduled (0s)
+PASS  still in Dock Mode, still landscape
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-agent-down.png
+PASS  connection restored (1s)
+== 8. frozen agent (no TCP reset): keepalive
+PASS  silent computer detected (timeout) (17s)
+PASS  reconnects after the agent resumes (0s)
+== 9. shell restart while docked
+PASS  shell comes back docked, landscape, connected, actions listed (0s)
+PASS  action after shell restart dispatched
+PASS  …and confirmed (0s)
+== 10. core restart while docked and connected (Stage 3.1, issue #5)
+PASS  new core: still dock, landscape, link restored by Core (0s)
+      core restart → connected: 1.237157901 s (includes the 1 s polling of this script)
+PASS  rotation preference untouched (portrait)
+PASS  actions re-advertised
+PASS  no flicker: the shell never left Dock Mode, never rotated to portrait, never went home
+PASS  the shell sent no Connect of its own
+PASS  exactly one restore Connect in the new core
+PASS  agent: one new authenticated session
+PASS  action after core restart dispatched
+PASS  …and confirmed by the computer (0s)
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-after-core-restart.png
+== 10b. core crash (SIGABRT) while docked, then repeated restarts
+PASS  after a crash: dock, landscape, reconnected (1s)
+PASS  restart 1: dock and connected (0s)
+PASS  restart 2: dock and connected (0s)
+PASS  restart 3: dock and connected (0s)
+PASS  agent: 4 sessions, each old one closed by its core (connected 4, disconnected 4, replaced 0)
+PASS  one recovery file, no leftovers
+== 10c. manual Disconnect survives core and shell restarts
+PASS  disconnected, intent cleared (0s)
+PASS  crashed core back in dock (1s)
+PASS  still disconnected 5 s after the core restart
+PASS  shell back docked and landscape (0s)
+PASS  still disconnected after the shell restart
+PASS  explicit Connect works (0s)
+== 10d. computer away: Core and shell restarts during backoff, live countdown
+PASS  backoff reached the 8 s wait (3s)
+PASS  countdown decreases with the clock (6726 → 4058 ms in 3393 ms)
+PASS  shown seconds match the deadline (page visible, screen on)
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008/dock-countdown.png
+PASS  core restart during backoff: dock, error, retry scheduled (0s)
+PASS  shell restart during backoff: countdown running (0s)
+PASS  restarted shell counts down to Core's deadline (shell 5740 ms, Core 5444 ms right after)
+PASS  agent back: reconnects on the next scheduled attempt (3s)
+      agent start → connected: 6 s (backoff, no network event)
+== 11. handheld → core restart → handheld
+PASS  handheld, portrait (0s)
+PASS  new core: handheld, portrait, wanted link restored (0s)
+PASS  portrait, disconnected (0s)
+== 12. a new graphical session starts in handheld
+PASS  dock again (auto-connect on entry) (0s)
+PASS  session stop removes the session runtime directory (recovery file gone)
+PASS  new session: handheld, portrait, disconnected, nothing wanted (2s)
+session pid 28286  WAYLAND_DISPLAY='wayland-0'
+core   running    pid=28298 supervisor=28291
+shell  running    pid=28564 supervisor=28562
+osk    running    pid=28444 supervisor=28442
+audio  running    pid=28297 supervisor=28292
+RESULT: PASS 72, FAIL 0. Evidence: /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261124-001008

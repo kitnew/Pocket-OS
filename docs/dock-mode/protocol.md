@@ -137,3 +137,25 @@ Additions (existing members unchanged):
 with `message = "duplicate"`.
 
 `pocket_ipc::PROTOCOL_VERSION` becomes **1.4**.
+
+## Stage 4.5 additions
+
+### Agent actions (Pocket Dock 1.1, additive)
+
+| Action | Privilege | Parameters | Notes |
+|---|---|---|---|
+| `desktop.open` | elevated | `destination` (choices: the laptop's `destinations` ids) | opens `{app, target}` through the app's `%f/%u` field code; target never comes from the phone (#16) |
+| `access.request` | basic | `action` (choices: elevated actions that are enabled and not granted) | shows Allow/Deny on the laptop; result `{"status":"asked"}` at once; the outcome arrives as a new `actions` advertisement; `unavailable` while a prompt is open or within 60 s of a Deny |
+
+The agent re-reads its policy on SIGHUP and pushes `actions` to connected phones.
+
+### `org.pocketos.Core1.Dock` 1.5
+
+| Member | Signature | Notes |
+|---|---|---|
+| action dict key | `params s` | JSON array `[{name, kind, required, choices:[{value,label}], min, max}]` |
+| `SetDeck` | `(s json)` | validates (the `GetDeck` document round-trips: tile `id`, `source`, `error` ignored), stores the user deck atomically, emits `DeckChanged`; invalid → `InvalidArgument`, nothing changes |
+| `ResetDeck` | `()` | removes the user deck; the built-in one applies; emits `DeckChanged` |
+| `SetPreference` key | `reduce_motion` (b) | also returned by `GetPreferences` |
+
+`pocket_ipc::PROTOCOL_VERSION` is **1.5**.

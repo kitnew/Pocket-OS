@@ -1,0 +1,77 @@
+== 0. preconditions
+PASS  agent service active
+PASS  phone session running
+PASS  docked and connected, Core 1.5 (0s)
+PASS  immersive Dock: system bars unmapped
+== 1. Ambient Home with real laptop state
+PASS  entering Dock Mode shows Home, unpinned (0s)
+PASS  live topics host, media, system, notifications (0s)
+PASS  laptop lock state known (unlocked)
+PASS  system vitals are numbers
+PASS  deck: built-in default with 4 pages
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-home.png
+== 2. navigation: idle return, touch resets, pin
+PASS  Deck view, idle return armed (~15 s)
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-deck.png
+PASS  a touch 10 s in kept the Deck (18 s > 15 s)
+PASS  back to Home 15 s after the last touch (4s)
+PASS  pinned Deck stays for 17 s
+PASS  unpinned: back to Home after the timeout (9s)
+== 3. default authorization (nothing granted)
+PASS  elevated actions advertised as not granted (live reload, no reconnect) (0s)
+PASS  the Lock tile says 'needs permission', not broken
+PASS  basic tiles stay ready
+PASS  ungranted Lock tile does nothing but explain
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-needs-permission.png
+PASS  agent: no lock
+== 4. a basic host action end to end (system volume via KDE, net zero)
+PASS  volume.up dispatched
+PASS  volume.up confirmed by the laptop (0s)
+PASS  volume.down dispatched
+PASS  volume.down confirmed (0s)
+PASS  agent invoked kmix increase/decrease_volume
+== 5. test policy: grants, one registered app, notification allow-list
+PASS  reconnected after the agent restart (1s)
+PASS  app.launch granted
+PASS  desktop.shortcut still not granted
+== 6. confirmation sheet: modal suspends idle return; Cancel sends nothing
+PASS  Lock tile asks for confirmation
+PASS  modal open
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-confirm.png
+PASS  17 s later: still on the Deck with the sheet (modal suspends idle)
+PASS  Cancel closes the sheet
+PASS  nothing was sent to the laptop
+PASS  idle return resumes after the sheet closed (8s)
+== 7. an elevated host action end to end (KCalc)
+PASS  agent launched org.kde.kcalc
+PASS  KCalc runs as its own user service (app-pocket-dock-org.kde.kcalc-1795474569813480.service)
+PASS  the launched app can write to the home directory
+PASS  closed KCalc again
+PASS  phone received the confirmation
+PASS  an unregistered app is refused (not_permitted)
+== 8. notifications: allow-list, banner, DND
+PASS  the allowed notification reached the phone (banner) (0s)
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-banner.png
+PASS  DND stored in Core
+PASS  DND: in the history, no banner (0s)
+PASS  closed on the laptop: gone from the phone's history (0s)
+== 9. disconnect / reconnect: no stale remote state
+PASS  disconnected: remote topics cleared (0s)
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-disconnected.png
+PASS  reconnected with a fresh snapshot (0s)
+== 10. Core restart keeps Dock Mode and the UI consistent
+PASS  core back, docked, connected, deck re-read (0s)
+PASS  the shell kept its view across the core restart
+PASS  live state resynchronised (0s)
+== 11. Stage 4.5: Quick Settings, deck editing, reduced motion
+PASS  Quick Settings open over the immersive Dock
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-quicksettings.png
+PASS  edit mode: a modal that suspends idle return
+PASS  tile editor opens on the tapped tile
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356/platform-tile-editor.png
+PASS  Done saves through Core (user deck) (0s)
+PASS  reset back to the built-in deck (0s)
+PASS  reduce motion stored in Core and applied (0s)
+
+RESULT: 54 passed, 0 failed. Evidence: /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-235356
+restored the original agent configuration

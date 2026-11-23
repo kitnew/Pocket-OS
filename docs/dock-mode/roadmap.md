@@ -1,4 +1,4 @@
-# Dock Mode: Stage 4 roadmap
+# Dock Mode: Stage 4 / 4.5 roadmap
 
 Tracking issue: [#9](https://github.com/kitnew/Pocket-OS/issues/9) · milestone
 *Stage 4 — Dock Mode platform*. Status legend: **done** (implemented and verified as
@@ -60,6 +60,15 @@ Acceptance: see #10. Tests: `cargo test -p pocketd` (deck), `node tests/shell/na
 | Agent monitor + policy (opt-in, allow/deny, redact when locked, no echo) | **done** (hardware) |
 | Core prefs (DND, muted apps), signals | **done** |
 | Banner overlay, history, DND toggle, per-app mute | **done** (banner + DND verified on hardware; sheet buttons need the touch pass) |
+
+## Stage 4.5 — Dock UX overhaul and functional completion (#19)
+
+After the first physical touch pass: immersive landscape Dock (no system bars, no
+duplicate time), Quick Settings that fit landscape, a design system, redesigned Home,
+Deck (swipeable pages, tile kinds with human copy) and Laptop view, deck editing on the
+phone (#17), destinations (#16), laptop-approved access requests, live agent
+configuration, apps launched outside the agent sandbox, reduced motion. Done; see
+[validation](../validation/stage4.5.md) and [ADR-0009](../decisions/0009-dock-ux-and-access.md).
 
 ## Testing strategy
 
