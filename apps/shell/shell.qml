@@ -48,6 +48,22 @@ ShellRoot {
         function brightness(percent: int): void { Shell.brightness.setValue(percent / 100) }
         function volume(percent: int): string { return Shell.setVolume(percent / 100) ? "ok" : "unavailable" }
         function mute(on: bool): string { return Shell.setMuted(on) ? "ok" : "unavailable" }
+        // Dock: the same paths as the Quick Settings tile and the Dock page buttons.
+        function mode(name: string): void { Shell.requestMode(name) }
+        function dock(op: string): string {
+            if (op === "connect") Shell.connectDock()
+            else if (op === "disconnect") Shell.disconnectDock()
+            else return "unknown op"
+            return "ok"
+        }
+        function dockAction(id: string): string {
+            const a = Shell.dock.actions.find(x => x.id === id)
+            if (!a) return "not offered"
+            if (!a.available) return "unavailable: " + a.reason
+            if (Shell.dock.pendingActions[id] !== undefined) return "busy"
+            Shell.runDockAction(id)
+            return "ok"
+        }
         function state(): string {
             return JSON.stringify({
                 core: Shell.core.statusText, mode: Shell.core.mode, apps: Shell.apps.count,
@@ -65,6 +81,11 @@ ShellRoot {
                                        output: Shell.audio.outputName, outputId: Shell.audio.outputId,
                                        volume: Math.round(Shell.audio.volume * 100), muted: Shell.audio.muted,
                                        cards: Shell.soundCards.cards } : null,
+                dock: { docked: Shell.docked, supported: Shell.dock.supported, state: Shell.dock.state,
+                        configured: Shell.dock.configured, host: Shell.dock.hostName, hostId: Shell.dock.hostId,
+                        error: Shell.dock.errorCode, retryIn: Shell.dock.retryIn,
+                        actions: Shell.dock.actions.map(a => ({ id: a.id, available: a.available })),
+                        pending: Object.keys(Shell.dock.pendingActions), results: Shell.dockResults },
                 toasts: Shell.toasts.count
             })
         }

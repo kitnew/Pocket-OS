@@ -137,14 +137,30 @@ Item {
                         root.sys.setBluetoothEnabled(!root.sys.bluetoothEnabled)
                     }
                 }
+                // Dock Mode: the core's mode. The tile flips only when the core reports it.
+                ToggleTile {
+                    width: tiles.tileWidth
+                    icon: "dock"
+                    label: "Dock mode"
+                    supported: Shell.coreConnected
+                    busy: Shell.core.requestPending
+                    checked: Shell.docked
+                    detail: !Shell.coreConnected ? "Core not connected"
+                          : !Shell.dock.supported ? (Shell.docked ? "On" : "Off")
+                          : Shell.dock.state === "connected" ? (Shell.docked ? "On · " : "Off · ") + Shell.dock.hostName
+                          : Shell.docked ? "On · no computer" : "Off"
+                    onActivated: Shell.requestMode(Shell.docked ? "handheld" : "dock")
+                }
                 ToggleTile {
                     width: tiles.tileWidth
                     icon: Shell.rotationMode === "auto" ? "rotate-auto" : "rotate"
                     label: "Rotation"
-                    supported: Shell.output.available
+                    // Dock Mode is always landscape; the preference applies again after it.
+                    supported: Shell.output.available && !Shell.docked
                     busy: Shell.output.busy
                     checked: Shell.rotationMode !== "portrait"
-                    detail: Shell.rotationMode === "auto"
+                    detail: Shell.docked ? "Landscape in Dock mode"
+                          : Shell.rotationMode === "auto"
                             ? (Shell.sensor.available ? "Auto (" + (Shell.sensor.claimed ? Shell.sensor.orientation : "no sensor access") + ")"
                                                       : "Auto: no sensor")
                             : Shell.rotationMode === "landscape" ? "Landscape" : "Portrait"

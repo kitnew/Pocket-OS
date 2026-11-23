@@ -12,8 +12,8 @@ use std::str::FromStr;
 /// Version of the Pocket IPC contract. The major is part of the D-Bus names (`Core1`);
 /// bump it (and the names) on any incompatible change, bump the minor on additions.
 /// History: 1.0 core state and modes (Stage 1); 1.1 adds the application object
-/// [`dbus::apps`] (Stage 2).
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 1 };
+/// [`dbus::apps`] (Stage 2); 1.2 adds the Dock object [`dbus::dock`] (Stage 3).
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 2 };
 
 /// D-Bus names of the core service (session bus).
 pub mod dbus {
@@ -78,6 +78,65 @@ pub mod dbus {
             pub const STARTUP_WM_CLASS: &str = "startup_wm_class";
         }
     }
+
+    /// Dock session: the link to one trusted desktop agent (since protocol 1.2). Served by
+    /// `pocketd` on the same bus name. The connection state is separate from the
+    /// operating [`crate::Mode`]: Dock Mode renders without a connection, and a
+    /// connection may exist in Handheld Mode. Decision record: ADR-0007.
+    ///
+    /// - `GetState() -> a{sv}`: [`state_key`].
+    /// - `ListActions() -> aa{sv}`: actions advertised by the connected agent
+    ///   ([`action_key`]); empty unless connected.
+    /// - `Connect()`: (re)reads the host configuration and starts connecting; retries
+    ///   transient failures with backoff until `Disconnect`. Error `…Error.NotConfigured`.
+    /// - `Disconnect()`: closes the link and stops retrying.
+    /// - `Execute(s action, a{sv} params) -> t request`: *accepts* a request (connected,
+    ///   advertised, available); the outcome arrives later as `ActionFinished` once the
+    ///   computer confirmed it. Errors `…Error.NotConnected`, `…Error.UnknownAction`,
+    ///   `…Error.ActionUnavailable`, `…Error.InvalidArgument`.
+    /// - signal `StateChanged(a{sv})`: full new state.
+    /// - signal `ActionsChanged(aa{sv})`: full new action list.
+    /// - signal `ActionFinished(t request, s action, b ok, s error_code, s message,
+    ///   s data_json)`: exactly once per accepted request.
+    pub mod dock {
+        pub const OBJECT_PATH: &str = "/org/pocketos/Core1/Dock";
+        pub const INTERFACE: &str = "org.pocketos.Core1.Dock";
+
+        /// Keys of the Dock state dictionary. Clients must ignore unknown keys.
+        pub mod state_key {
+            /// `s`: a [`crate::DockState`] wire name.
+            pub const STATE: &str = "state";
+            /// `b`: a trusted host is configured on the phone.
+            pub const CONFIGURED: &str = "configured";
+            /// `s`: name of the configured (or connected) computer.
+            pub const HOST_NAME: &str = "host_name";
+            /// `s`: short form of the host's pinned public key.
+            pub const HOST_ID: &str = "host_id";
+            /// `s`: `address:port` of the agent.
+            pub const ADDRESS: &str = "address";
+            /// `s`: agent software and version (empty unless connected).
+            pub const AGENT: &str = "agent";
+            /// `s`: machine-readable reason of the last failure (empty when none).
+            pub const ERROR_CODE: &str = "error_code";
+            /// `s`: human-readable reason of the last failure.
+            pub const ERROR: &str = "error";
+            /// `u`: seconds until the next automatic attempt (0 = none scheduled).
+            pub const RETRY_IN: &str = "retry_in";
+            /// `t`: strictly increasing per core process.
+            pub const REVISION: &str = "revision";
+        }
+
+        /// Keys of one action dictionary. Clients must ignore unknown keys.
+        pub mod action_key {
+            pub const ID: &str = "id";
+            pub const LABEL: &str = "label";
+            pub const CATEGORY: &str = "category";
+            /// `b`
+            pub const AVAILABLE: &str = "available";
+            /// `s`: why it is unavailable.
+            pub const REASON: &str = "reason";
+        }
+    }
 }
 
 /// Contract version, checked by clients before using the API.
@@ -125,6 +184,38 @@ impl Mode {
 }
 
 impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// State of the link to the desktop agent (not a [`Mode`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DockState {
+    /// No link and no attempt scheduled (initial, or after `Disconnect`).
+    #[default]
+    Disconnected,
+    /// An attempt is in progress.
+    Connecting,
+    /// Authenticated session with the agent.
+    Connected,
+    /// The last attempt or session failed; see `error_code`. A retry may be scheduled
+    /// (`retry_in` > 0), or the failure needs user action (e.g. `unauthorized`).
+    Error,
+}
+
+impl DockState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DockState::Disconnected => "disconnected",
+            DockState::Connecting => "connecting",
+            DockState::Connected => "connected",
+            DockState::Error => "error",
+        }
+    }
+}
+
+impl fmt::Display for DockState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -179,7 +270,7 @@ mod tests {
         assert!(v(1, 0).is_compatible_with(v(1, 2)));
         assert!(!v(1, 2).is_compatible_with(v(1, 0)));
         assert!(!v(2, 0).is_compatible_with(v(1, 9)));
-        assert_eq!(PROTOCOL_VERSION.to_string(), "1.1");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "1.2");
     }
 
     #[test]

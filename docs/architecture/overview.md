@@ -1,17 +1,21 @@
 # Architecture overview
 
-Status: **Stage 2.5 (implemented)**: the Stage 2 mobile shell (home, launcher, window
-switching, status bar, quick settings, on-screen keyboard, rotation, display power), plus
-a supervised PipeWire audio stack with volume and mute, a usable landscape keyboard,
-boot-image safety for package operations, and a soak-tested memory profile. Items marked
-*planned* do not exist yet.
+Status: **Stage 3 (implemented)**: the Stage 2/2.5 mobile shell (home, launcher, window
+switching, status bar, quick settings, on-screen keyboard, rotation, display power,
+supervised PipeWire audio), plus the **Dock Mode foundation**: a landscape Dock page, an
+authenticated link from Pocket Core to a desktop agent on a trusted computer, and
+confirmed desktop actions. Items marked *planned* do not exist yet.
 Decisions: [ADR-0001](../decisions/0001-initial-technology-stack.md) (stack),
 [ADR-0002](../decisions/0002-pocket-core-and-ipc.md) (core + IPC),
 [ADR-0003](../decisions/0003-graphical-session-lifecycle.md) (session lifecycle),
 [ADR-0004](../decisions/0004-shell-ui-architecture.md) (shell UI),
 [ADR-0005](../decisions/0005-applications-and-window-management.md) (apps, windows,
 compositor capabilities), [ADR-0006](../decisions/0006-secure-lock-screen.md) (secure
-lock screen: investigation, deferred). Audio: [`development/audio.md`](../development/audio.md).
+lock screen: investigation, deferred), [ADR-0007](../decisions/0007-dock-architecture.md)
+(Dock architecture, transport, desktop agent). Audio:
+[`development/audio.md`](../development/audio.md). Dock:
+[`development/dock.md`](../development/dock.md). Outstanding work is tracked in
+[GitHub Issues](https://github.com/kitnew/Pocket-OS/issues) ([workflow](../development/issues.md)).
 
 ## Layers
 
@@ -21,13 +25,16 @@ lock screen: investigation, deferred). Audio: [`development/audio.md`](../develo
 │       surfaces/ services/   (Quickshell-specific; services/AudioService │
 │                             = Quickshell.Services.Pipewire)             │
 │       state/Shell  features/  components/  theme/   (portable Qt Quick)  │
-│     Pocket.Core      CoreClient, AppCatalog (QtDBus → pocketd)          │
+│     Pocket.Core      CoreClient, AppCatalog, DockClient (QtDBus → pocketd)│
 │     Pocket.Platform  PowerKey, DisplayPower, OutputConfig (Wayland),    │
 │                      Brightness, OrientationSensor, OnScreenKeyboard    │
-├──────────── D-Bus session bus: org.pocketos.Core1 (+ /Apps) ───────────┤
+├──────── D-Bus session bus: org.pocketos.Core1 (+ /Apps, /Dock) ────────┤
 │ L3  Pocket Core    pocketd (Rust, zbus)                crates/pocketd    │
 │                    pocket-core: mode state machine     crates/pocket-core│
 │                    pocket-platform: app catalog/launch crates/pocket-platform│
+│                    dock: link to the desktop agent    crates/pocketd/src/dock│
+│                      ══ TCP + Noise (USB link) ══► pocket-desktop-agent      │
+│                         (computer, user service)   crates/pocket-desktop-agent│
 │                    pocket-ipc: contract                crates/pocket-ipc │
 ├────────────────────────────────────────────────────────────────────────┤
 │ L2  Compositor & services  Phoc 0.59 · squeekboard · UPower ·           │
@@ -49,7 +56,10 @@ lock screen: investigation, deferred). Audio: [`development/audio.md`](../develo
 | **pocketd** (`crates/pocketd`) | D-Bus service: Core1 (mode) and Core1/Apps (catalog, launch, exit signals, inotify rescans) | Logic (delegated to the crates below) |
 | **pocket-core** | `StateManager`: mode, validation, events, revision. No I/O | Transport, system services |
 | **pocket-platform** | Desktop Entry discovery, visibility rules, safe Exec expansion, icon lookup, launch command | D-Bus, Qt |
-| **pocket-ipc** | Contract: names, protocol 1.1, keys | — |
+| **pocket-ipc** | Contract: names, protocol 1.2, keys, `DockState` | — |
+| **pocketd dock module** (`crates/pocketd/src/dock`) | `org.pocketos.Core1.Dock`: trusted-host config, link state (connect, backoff, keepalive), request acceptance and `ActionFinished` relay | Executing desktop actions; the operating mode |
+| **pocket-dock-protocol** | Wire protocol shared with the agent: messages, Noise channel, key files | Policy |
+| **Pocket Desktop Agent** (computer) | Authenticates phones (pinned keys), advertises and executes registered actions (`desktop.notify`, `media.play_pause`) | Anything not registered; shell commands |
 | **Session layer** | Seat session, private bus, supervision of core/shell/osk/audio | Policy inside components |
 | **Audio stack** (PipeWire, WirePlumber, pipewire-pulse) | Devices, routing, default sink, volumes and their persistence, Pulse API for apps | Pocket-specific state (none is kept in Core) |
 
@@ -92,10 +102,11 @@ an app activates its existing window (matched by app_id = desktop ID or
 
 | Owner | State |
 |---|---|
-| Pocket Core | mode (`handheld`/`dock`), application catalog, launches |
+| Pocket Core | mode (`handheld`/`dock`), application catalog, launches, Dock link state (transient) and trusted-host config (`~/.config/pocket-os/dock`) |
+| Desktop agent | which desktop actions exist and whether they are available |
 | Compositor | windows, activation, output power, transform |
 | System services | battery, network, Bluetooth, backlight, accelerometer, OSK visibility, audio devices/volume/mute (PipeWire/WirePlumber) |
-| Shell (UI) | home visibility/page, open panel, rotation mode, toasts |
+| Shell (UI) | home visibility/page, open panel, rotation mode (preference; Dock Mode forces landscape without changing it), toasts, last Dock action results |
 
 Nothing owned by the system or the compositor is mirrored into Core. UI state is
 transient (reset by a shell restart).
@@ -115,7 +126,10 @@ transient (reset by a shell restart).
 Contract summary (ADR-0002): `org.pocketos.Core1` (`GetVersion`, `GetState`, `GetMode`,
 `RequestMode`, `ModeChanged`, `StateChanged`) and, since 1.1, `org.pocketos.Core1.Apps`
 on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
-`AppExited`). Errors: `org.pocketos.Core1.Error.{InvalidMode,NotReady,UnknownApp,LaunchFailed}`.
+`AppExited`) and, since 1.2, `org.pocketos.Core1.Dock` on `/org/pocketos/Core1/Dock`
+(`GetState`, `ListActions`, `Connect`, `Disconnect`, `Execute`, `StateChanged`,
+`ActionsChanged`, `ActionFinished`; ADR-0007). Errors:
+`org.pocketos.Core1.Error.{InvalidMode,NotReady,UnknownApp,LaunchFailed,NotConfigured,NotConnected,UnknownAction,ActionUnavailable,InvalidArgument}`.
 
 ## Display, power key, rotation, security
 
@@ -145,5 +159,8 @@ on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
   exists, add a `Pocket.Platform` type (shell-side, compositor/D-Bus) or a
   `pocket-platform` adapter served by `pocketd` (authoritative actions).
 - New Core domain: a new object under `/org/pocketos/Core1/…` (minor protocol bump).
+- New desktop action: one `Action` type in `crates/pocket-desktop-agent/src/actions/`
+  plus one `register` call. The phone shows it with no change (`development/dock.md`).
 
-There is no persistence layer, plugin loading or second daemon. Each would need an ADR.
+There is no persistence layer (beyond the Dock trusted-host files) and no plugin loading.
+On the phone there is no second daemon. Each would need an ADR.

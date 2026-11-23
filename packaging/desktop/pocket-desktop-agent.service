@@ -1,0 +1,22 @@
+# Pocket Desktop Agent: the computer side of Pocket Dock (docs/development/dock.md).
+# A user service: it runs as the desktop user, never as root, and needs the user's
+# session bus (notifications, MPRIS). Installed by scripts/dock-pair.sh.
+[Unit]
+Description=Pocket Desktop Agent (Pocket OS Dock)
+Documentation=https://github.com/kitnew/Pocket-OS/blob/main/docs/development/dock.md
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/pocket-desktop-agent run
+Restart=on-failure
+RestartSec=5
+Environment=POCKET_AGENT_LOG=info
+# It only needs to read its configuration and talk to the session bus.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=graphical-session.target

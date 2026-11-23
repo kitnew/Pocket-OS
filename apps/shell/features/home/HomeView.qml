@@ -1,11 +1,13 @@
 import QtQuick
 import "../../state"
 import "../../theme"
+import "../dock"
 import "../launcher"
 import "../switcher"
 
 // The home surface content: one of three pages (UI-owned Shell.homePage). Switching
-// pages is a short cross-fade; the inactive pages are not rendered.
+// pages is a short cross-fade; the inactive pages are not rendered. In Dock Mode (the
+// core's mode) the "home" page is the Dock control surface; launcher and switcher stay.
 Rectangle {
     id: root
     color: Theme.background
@@ -14,7 +16,13 @@ Rectangle {
     HomePage {
         anchors.fill: parent
         visible: opacity > 0
-        opacity: Shell.homePage === "home" ? 1 : 0
+        opacity: Shell.homePage === "home" && !Shell.docked ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.duration } }
+    }
+    DockPage {
+        anchors.fill: parent
+        visible: opacity > 0
+        opacity: Shell.homePage === "home" && Shell.docked ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.duration } }
     }
     LauncherPage {

@@ -35,8 +35,15 @@ Rectangle {
         }
         StatusIndicator {
             anchors.verticalCenter: parent.verticalCenter
-            visible: Shell.core.mode === "dock"
+            visible: Shell.docked
             icon: "dock"
+        }
+        // Desktop link (independent of the mode): shown while connected or trying.
+        StatusIndicator {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: Shell.dock.supported && Shell.dock.state !== "disconnected" && Shell.dock.state !== ""
+            icon: Shell.dock.state === "error" ? "alert" : "plug"
+            dim: Shell.dock.state !== "connected"
         }
         StatusIndicator {
             anchors.verticalCenter: parent.verticalCenter

@@ -28,7 +28,12 @@ scripts/logs.sh                  # fetch session log, print diagnostic events
 scripts/e2e.sh                   # lifecycle e2e test against the running session
 scripts/test-device.sh           # contract + bridge integration tests on the device
 scripts/session.sh stop          # end the session, back to the tty1 console
+scripts/dock-pair.sh             # Dock: install the desktop agent on this computer, pair with the phone
+scripts/dock-e2e.sh              # Dock: end-to-end test (phone session + this computer's agent)
 ```
+
+Dock Mode (desktop agent, pairing, adding actions, diagnosing connections):
+[`dock.md`](dock.md). Issue tracking conventions: [`issues.md`](issues.md).
 
 ## 1. One-time setup
 
@@ -237,7 +242,9 @@ scripts/session.sh stop
 | Test | Command | Needs |
 |---|---|---|
 | Rust unit tests + `pocketd` D-Bus contract test | `scripts/check.sh` (or `cargo test`) | host `dbus-daemon` |
-| Same contract test on the device + bridge (C++/QtTest) integration test | `scripts/test-device.sh` | `scripts/build.sh && scripts/deploy.sh`. Runs on private buses, safe while a session runs |
+| Same contract tests on the device (core/apps + Dock) + bridge (C++/QtTest) integration test incl. `DockClient` against a real agent on 127.0.0.1 | `scripts/test-device.sh` | `scripts/build.sh && scripts/deploy.sh`. Runs on private buses, safe while a session runs |
+| Dock protocol/agent tests and the Dock D-Bus contract (real pocketd + in-process agent, ~30 s) | `scripts/check.sh` (or `cargo test -p pocket-desktop-agent -p pocketd`) | host `dbus-daemon` |
+| Stage 3 Dock e2e (Dock Mode with/without computer, real notification, agent stop/restart/freeze, shell/core restart, rotation preference) | `scripts/dock-e2e.sh` | a running session + paired agent (`scripts/dock-pair.sh`); shows 2 notifications on the desktop |
 | Session lifecycle e2e (signals, core/shell crash and restart, give-up, recovery) | `scripts/e2e.sh` | a running session. Evidence in `.cache/e2e/<ts>/` |
 | Stage 2 shell e2e (catalog, launch, home/reactivate, switcher, failures, close, quick settings, brightness, rotation, display power, OSK, app survival) | `scripts/e2e.sh stage2` (`all` = both) | a running session; installs/removes test `.desktop` files in `~/.local/share/applications` |
 | Stage 2.5 audio e2e (stack running as the user, no PulseAudio, real ALSA sink, volume/mute both ways (shell ↔ wpctl/pactl), playback reaches `hw:0,0`, volume persistence, PipeWire/WirePlumber crash recovery, stop/start, shell/core restarts leave audio alone) | `scripts/e2e.sh audio` | a running session |

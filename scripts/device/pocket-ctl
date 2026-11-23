@@ -9,6 +9,8 @@
 #   pocket-ctl env                    print the session environment (DBus/Wayland) to source
 #   pocket-ctl core METHOD [ARGS]     call org.pocketos.Core1.METHOD (dbus-send; for tests)
 #   pocket-ctl apps METHOD [ARGS]     call org.pocketos.Core1.Apps.METHOD (ListApps, Launch, Reload)
+#   pocket-ctl dock METHOD [ARGS]     call org.pocketos.Core1.Dock.METHOD (GetState, ListActions,
+#                                     Connect, Disconnect, Execute)
 #   pocket-ctl ui FUNCTION [ARGS]     call the shell's IPC handler (state, home, page apps|switcher,
 #                                     open APP, activate APP, close APP, panel NAME|none,
 #                                     rotation portrait|landscape|auto, display true|false,
@@ -97,6 +99,15 @@ apps)
 	exec dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1/Apps \
 		"org.pocketos.Core1.Apps.$m" "$@"
 	;;
+dock)
+	need_session
+	shift
+	m="${1:?method required}"
+	shift
+	. "$run/env"
+	exec dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1/Dock \
+		"org.pocketos.Core1.Dock.$m" "$@"
+	;;
 ui)
 	need_session
 	shift
@@ -106,7 +117,7 @@ ui)
 	exec "$HOME/pocket-os/opt/quickshell/bin/quickshell" ipc --pid "$p" call pocket "$@"
 	;;
 *)
-	sed -n '2,16s/^# \{0,1\}//p' "$0" >&2
+	sed -n '2,18s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 	;;
 esac

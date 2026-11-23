@@ -1,0 +1,66 @@
+== 0. preconditions
+PASS  agent service active
+PASS  phone session running
+PASS  shell answers over IPC (0s)
+PASS  handheld, portrait, disconnected (0s)
+== 1. Dock Mode without a computer
+PASS  Core reports dock; output landscape (0s)
+PASS  rotation preference untouched
+PASS  Dock page is the home page
+PASS  auto-connect fails visibly: error unreachable, retry scheduled (0s)
+PASS  no actions without a computer
+PASS  IPC dockAction → not offered
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-112329/dock-no-computer.png
+== 2. leave Dock Mode without a connection
+PASS  handheld, portrait restored (0s)
+PASS  Disconnect stops retrying (0s)
+== 3. agent available: enter Dock Mode, connect, discover
+PASS  connected after entering Dock Mode (0s)
+PASS  capabilities: desktop.notify available
+PASS  capabilities: media.play_pause listed
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-112329/dock-connected.png
+== 4. real desktop action
+PASS  dispatch accepted
+PASS  phone shows the computer's confirmation (0s)
+PASS  agent log: notification 39 shown by the desktop
+PASS  same notification id confirmed on the phone
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-112329/dock-action-done.png
+== 4b. leave and re-enter: the rotation preference is the user's
+PASS  handheld restores the landscape preference (0s)
+PASS  connection outlives Dock Mode
+PASS  portrait preference applied in handheld (0s)
+PASS  Dock Mode forces landscape again, preference stays portrait (0s)
+== 4c. Disconnect while docked sticks
+PASS  disconnected in Dock Mode (0s)
+PASS  no automatic reconnect after the user's Disconnect
+PASS  Connect button path reconnects (0s)
+== 5. unknown action rejected
+PASS  Core rejects unknown action (UnknownAction)
+PASS  Core rejects shell-like action id
+== 6. agent restart
+PASS  phone sees the disconnect (0s)
+PASS  reconnects by itself (1s)
+== 7. agent stopped (unexpected disconnection), then back
+PASS  disconnection detected: error + retry scheduled (0s)
+PASS  still in Dock Mode, still landscape
+      screenshot /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-112329/dock-agent-down.png
+PASS  connection restored (1s)
+== 8. frozen agent (no TCP reset): keepalive
+PASS  silent computer detected (timeout) (17s)
+PASS  reconnects after the agent resumes (1s)
+== 9. shell restart while docked
+PASS  shell comes back docked, landscape, connected, actions listed (0s)
+PASS  action after shell restart dispatched
+PASS  …and confirmed (0s)
+== 10. core restart while docked (in-memory mode; issue #5)
+PASS  new core: handheld, portrait restored, link disconnected (0s)
+PASS  Dock Mode again reconnects (0s)
+== 11. back to handheld
+PASS  handheld, portrait (0s)
+PASS  portrait, disconnected (0s)
+session pid 22393  WAYLAND_DISPLAY='wayland-0'
+core   running    pid=24145 supervisor=22398
+shell  running    pid=24076 supervisor=22460
+osk    running    pid=22449 supervisor=22447
+audio  running    pid=22405 supervisor=22399
+RESULT: PASS 42, FAIL 0. Evidence: /home/nikitachernysh/Storage/Projects/Pocket-OS/.cache/e2e/20261123-112329

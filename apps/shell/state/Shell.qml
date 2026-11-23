@@ -11,10 +11,11 @@ import Pocket.Platform
 //   Shell.system   battery/network/bluetooth (services/SystemStatus.qml)
 //
 // State ownership (docs/decisions/0004-shell-ui-architecture.md):
-//   core-owned        core.mode, app catalog + launching (pocketd)
+//   core-owned        core.mode, app catalog + launching, Dock link state (pocketd)
 //   compositor-owned  windows, focus, output power/transform (Phoc; mirrored here)
 //   system-owned      battery, network, bluetooth, backlight, sensors (their services)
-//   UI-owned          homeVisible, homePage, panel, rotationMode, toasts (this file)
+//   UI-owned          homeVisible, homePage, panel, rotationMode, toasts, last Dock action
+//                     results (this file)
 QtObject {
     id: shell
 
@@ -28,6 +29,95 @@ QtObject {
             mode: mode, ok: ok, error: ok ? "-" : JSON.stringify(error) })
     }
     readonly property bool coreConnected: core.status === CoreClient.Connected
+    // Dock Mode is the core's mode, never a local flag (ADR-0007).
+    readonly property bool docked: core.mode === "dock"
+    onDockedChanged: {
+        diag("dock.mode", { docked: docked })
+        // Dock Mode is landscape; the user's rotation preference is kept and restored.
+        applyRotation()
+        if (docked) {
+            panel = ""
+            homePage = "home"   // the Dock page
+            homeRequested = true
+            autoConnectDock()
+        }
+    }
+
+    function requestMode(mode) {
+        diag("mode.request", { mode: mode })
+        core.requestMode(mode)
+    }
+
+    // ── Dock session (pocketd owns the link; this is a mirror plus dispatch) ──
+    readonly property DockClient dock: DockClient {
+        core: shell.core
+        onChanged: shell._dockChanged()
+        onActionsChanged: shell.diag("dock.actions", { ids: actions.map(a => a.id + (a.available ? "" : "(off)")).join(",") || "-" })
+        onRequestFailed: (op, error) => {
+            shell.diag("dock.request.failed", { op: op, error: JSON.stringify(error) })
+            shell.notify("Dock " + op + " failed: " + error.replace(/^[A-Za-z]+: /, ""), "error")
+        }
+        onActionFinished: (request, action, ok, code, message, data) => shell._dockFinished(request, action, ok, code, message, data)
+    }
+    property string _dockLogged: ""
+    function _dockChanged() {
+        const line = [dock.supported, dock.state, dock.hostName, dock.errorCode, dock.retryIn].join()
+        if (line === _dockLogged)
+            return
+        _dockLogged = line
+        diag("dock.state", { supported: dock.supported, state: dock.state || "-", host: JSON.stringify(dock.hostName),
+                             error: dock.errorCode || "-", retry: dock.retryIn })
+        // Only when the Dock object (re)appears (shell or core start), never on later state
+        // changes: a user's Disconnect while docked must stick.
+        const appeared = dock.supported && !_dockWasSupported
+        _dockWasSupported = dock.supported
+        if (appeared && docked)
+            autoConnectDock()
+    }
+    property bool _dockWasSupported: false
+    // Entering Dock Mode connects to the paired computer when nothing else is going on.
+    // Failures that need the user (unauthorized, key mismatch) are not retried here.
+    function autoConnectDock() {
+        if (dock.supported && dock.configured && dock.state === "disconnected") {
+            diag("dock.autoconnect", { host: JSON.stringify(dock.hostName) })
+            dock.connectHost()
+        }
+    }
+    function connectDock() {
+        diag("dock.connect", { state: dock.state })
+        dock.connectHost()
+    }
+    function disconnectDock() {
+        diag("dock.disconnect", { state: dock.state })
+        dock.disconnectHost()
+    }
+    // Parameters the UI sends per action (the agent has defaults for everything).
+    function dockParams(action) {
+        if (action === "desktop.notify")
+            return { title: "Pocket OS", body: "Sent from Pocket Dock at " + Qt.formatTime(new Date(), "HH:mm:ss") }
+        return {}
+    }
+    function runDockAction(action) {
+        diag("dock.action", { id: action })
+        dock.execute(action, dockParams(action))
+    }
+    // Last outcome per action id: { ok, text, time }. UI-owned, reset by a shell restart.
+    property var dockResults: ({})
+    function _dockFinished(request, action, ok, code, message, data) {
+        let text = ok ? "Done on " + (dock.hostName || "computer") : (message || code)
+        if (ok && action === "desktop.notify")
+            text = "Notification shown on " + (dock.hostName || "computer")
+        else if (ok && action === "media.play_pause") {
+            try { text = "Toggled " + JSON.parse(data).player } catch (e) {}
+        }
+        const r = Object.assign({}, dockResults)
+        r[action] = { ok: ok, code: code, text: text, time: Qt.formatTime(new Date(), "HH:mm:ss") }
+        dockResults = r
+        diag("dock.action.finished", { request: request, id: action, ok: ok, code: code || "-",
+                                       message: JSON.stringify(message), data: data || "-" })
+        if (!ok)
+            notify(dock.hostName ? action + " on " + dock.hostName + ": " + text : text, "error")
+    }
 
     readonly property AppCatalog apps: AppCatalog {
         core: shell.core
@@ -63,6 +153,9 @@ QtObject {
     readonly property OutputConfig output: OutputConfig {
         onApplied: (ok, detail) => shell.diag("output.applied", { ok: ok, rotation: rotation, detail: JSON.stringify(detail) })
         onRotationChanged: shell.diag("output.rotation", { rotation: rotation })
+        // A shell (re)started while docked: put the output back to landscape once the
+        // output manager is bound.
+        onAvailableChanged: if (available && shell.docked) shell.applyRotation()
     }
     readonly property Brightness brightness: Brightness {}
     readonly property OrientationSensor sensor: OrientationSensor {
@@ -238,6 +331,12 @@ QtObject {
     function applyRotation() {
         if (!output.available)
             return
+        if (docked) {
+            // Either landscape orientation is fine while docked; never portrait.
+            if (output.rotation !== 90 && output.rotation !== 270)
+                output.setRotation(90)
+            return
+        }
         if (rotationMode === "portrait")
             output.setRotation(0)
         else if (rotationMode === "landscape")

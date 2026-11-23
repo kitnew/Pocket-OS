@@ -102,6 +102,9 @@ Rectangle {
                       + "\nbacklight " + (Shell.brightness.available ? Shell.brightness.device + " " + Math.round(Shell.brightness.value * 100) + "%" : "n/a")
                       + "\naccelerometer " + root.yn(Shell.sensor.available) + " claimed " + root.yn(Shell.sensor.claimed)
                       + " " + Shell.sensor.orientation + (Shell.sensor.lastError ? " (" + Shell.sensor.lastError + ")" : "")
+                      + "\ndock " + (Shell.dock.supported ? Shell.dock.state + (Shell.dock.hostName ? " " + Shell.dock.hostName + " " + Shell.dock.address : "")
+                                                            + (Shell.dock.errorCode ? " (" + Shell.dock.errorCode + ")" : "") + " · actions " + Shell.dock.actions.length
+                                                          : "n/a")
                       + "\nosk " + root.yn(Shell.osk.available) + " visible " + root.yn(Shell.osk.visible)
                       + "\naudio cards " + Shell.soundCards.cards + " · pipewire " + root.yn(Shell.audio && Shell.audio.connected)
                       + (Shell.audio && Shell.audio.available ? " · " + Shell.audio.outputName + " " + Math.round(Shell.audio.volume * 100) + "%" + (Shell.audio.muted ? " muted" : "") : "")

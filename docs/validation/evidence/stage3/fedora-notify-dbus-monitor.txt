@@ -1,0 +1,23 @@
+signal time=1795428428.720001 sender=org.freedesktop.DBus -> destination=:1.517 serial=4294967295 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameAcquired
+   string ":1.517"
+signal time=1795428428.720048 sender=org.freedesktop.DBus -> destination=:1.517 serial=4294967295 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameLost
+   string ":1.517"
+method call time=1795428430.310683 sender=:1.515 -> destination=org.freedesktop.Notifications serial=4 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+   string "Pocket OS"
+   uint32 0
+   string "phone"
+   string "Pocket OS"
+   string "Sent from Pocket Dock at 11:07:08"
+   array [
+   ]
+   array [
+      dict entry(
+         string "desktop-entry"
+         variant             string "pocket-desktop-agent"
+      )
+   ]
+   int32 -1
+method return time=1795428430.316325 sender=org.freedesktop.DBus -> destination=:1.42 serial=4294967295 reply_serial=21030
+   uint32 228853
+method return time=1795428430.320451 sender=:1.42 -> destination=:1.515 serial=21031 reply_serial=4
+   uint32 29

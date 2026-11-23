@@ -38,7 +38,7 @@ and how QML talks to it.
 | Bus name | `org.pocketos.Core1` |
 | Object path | `/org/pocketos/Core1` |
 | Interface | `org.pocketos.Core1` |
-| Protocol version | `1.1` (major is in the names; minor bumps only add). 1.0 = Stage 1; 1.1 adds the Apps object below |
+| Protocol version | `1.2` (major is in the names; minor bumps only add). 1.0 = Stage 1; 1.1 adds the Apps object below; 1.2 adds the Dock object (`/org/pocketos/Core1/Dock`, [ADR-0007](0007-dock-architecture.md)) |
 
 | Member | Signature | Semantics |
 |---|---|---|
@@ -50,7 +50,7 @@ and how QML talks to it.
 | signal `StateChanged` | `(a{sv} state)` | Full new state, after every change (including becoming ready) |
 
 State keys (`pocket_ipc::dbus::state_key`; clients ignore unknown keys):
-`version` (s), `protocol` (s, `"1.1"`), `mode` (s), `ready` (b), `revision` (t — strictly
+`version` (s), `protocol` (s, e.g. `"1.2"`), `mode` (s), `ready` (b), `revision` (t — strictly
 increasing per core process, restarts when the core restarts).
 
 Errors: `org.pocketos.Core1.Error.InvalidMode` (unknown mode name; names are exact and

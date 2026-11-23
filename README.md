@@ -6,8 +6,8 @@ the phone into a configurable desktop control surface. It runs on top of an ordi
 postmarketOS/Alpine system and standard Linux services. It is not a new distribution and
 does not include a custom compositor.
 
-**Status: Stage 2.5 (stabilization & hardware integration) complete.** On the phone,
-Pocket OS is a usable touchscreen shell (the session is started manually). It has:
+**Status: Stage 3 (Dock Mode foundation) complete.** On the phone, Pocket OS is a usable
+touchscreen shell (the session is started manually). It has:
 - a Home screen and a launcher with search;
 - real application launching through Pocket Core;
 - window switching and closing;
@@ -16,14 +16,20 @@ Pocket OS is a usable touchscreen shell (the session is started manually). It ha
   keyboard, screen off;
 - the squeekboard on-screen keyboard, with a compact landscape mode;
 - portrait/landscape/auto rotation;
-- power-key display off/on.
+- power-key display off/on;
+- **Dock Mode**: a landscape control surface connected to a trusted computer. A small
+  desktop agent runs on the computer, the link is authenticated and encrypted (Noise, over
+  USB networking), and taps run registered desktop actions with confirmed results
+  (desktop notification; media play/pause). Pairing: `scripts/dock-pair.sh`.
 
 Core, shell, keyboard and the PipeWire audio stack restart independently. A 36-minute
 soak showed no memory leak. Package operations follow a verified boot-partition backup
 procedure. There is **no lock screen**: no secure mechanism exists in Phoc yet (ADR-0006).
-Evidence: [`docs/validation/stage2.5.md`](docs/validation/stage2.5.md)
-([Stage 2](docs/validation/stage2.md), [Stage 1](docs/validation/stage1.md),
-[Stage 0](docs/validation/stage0.md)).
+Evidence: [`docs/validation/stage3.md`](docs/validation/stage3.md)
+([Stage 2.5](docs/validation/stage2.5.md), [Stage 2](docs/validation/stage2.md),
+[Stage 1](docs/validation/stage1.md), [Stage 0](docs/validation/stage0.md)).
+Outstanding work: [GitHub Issues](https://github.com/kitnew/Pocket-OS/issues)
+([workflow](docs/development/issues.md)).
 
 ## Target device
 
@@ -41,7 +47,9 @@ Details: [`docs/hardware/lavender.md`](docs/hardware/lavender.md).
 ```
 Pocket Shell (QML on Quickshell) ── Pocket.Core (QtDBus) ──D-Bus session bus── pocketd (Rust, zbus)
   surfaces · services (Quickshell)                   org.pocketos.Core1      ├ pocket-core (state, modes)
-  state · features · components · theme (Qt Quick)   org.pocketos.Core1.Apps └ pocket-platform (apps)
+  state · features · components · theme (Qt Quick)   org.pocketos.Core1.Apps ├ pocket-platform (apps)
+                                                     org.pocketos.Core1.Dock └ dock ══ TCP+Noise ══► pocket-desktop-agent
+                                                                                      (USB link)     (computer, user service)
   Pocket.Platform ── Wayland: power key, output power, rotation; D-Bus: logind, sensors, OSK
             │ Wayland (layer-shell, foreign-toplevel, input-method)
           Phoc 0.59 (wlroots) ── squeekboard, apps
@@ -67,7 +75,8 @@ Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and the de
 [ADR-0003 session lifecycle](docs/decisions/0003-graphical-session-lifecycle.md),
 [ADR-0004 shell UI](docs/decisions/0004-shell-ui-architecture.md),
 [ADR-0005 apps, windows & compositor](docs/decisions/0005-applications-and-window-management.md),
-[ADR-0006 secure lock screen](docs/decisions/0006-secure-lock-screen.md).
+[ADR-0006 secure lock screen](docs/decisions/0006-secure-lock-screen.md),
+[ADR-0007 Dock architecture](docs/decisions/0007-dock-architecture.md).
 
 ## Repository layout
 
@@ -79,9 +88,12 @@ Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and the de
 | `crates/pocket-ipc/` | IPC contract: D-Bus names, protocol version, `Mode`, state keys |
 | `crates/pocket-core/` | Framework-independent state manager (modes, validation, events, revision) |
 | `crates/pocket-platform/` | Desktop Entry catalog, visibility rules, safe Exec expansion, icon lookup |
-| `crates/pocketd/` | Core daemon on the session bus (zbus) + black-box D-Bus contract test |
+| `crates/pocketd/` | Core daemon on the session bus (zbus), incl. the Dock link (`src/dock/`), + black-box D-Bus contract tests |
+| `crates/pocket-dock-protocol/` | Dock wire protocol shared with the agent: messages, Noise channel, key files |
+| `crates/pocket-desktop-agent/` | Pocket Desktop Agent for the computer: trusted connections, action registry, desktop actions |
 | `config/phoc.ini` | Phoc configuration for the device (scale 3) |
-| `packaging/` | OpenRC `pocket-session` service (manual), elogind power-key drop-in, scoped sudoers rule |
+| `packaging/` | OpenRC `pocket-session` service (manual), elogind power-key drop-in, scoped sudoers rule, desktop agent systemd user unit |
+| `.github/ISSUE_TEMPLATE/` | Bug and feature/improvement templates |
 | `scripts/` | Host dev tools: build, deploy, session control, logs, tests, checks, Quickshell build, device proxy |
 | `scripts/device/` | Session root, supervisor, `pocket-ctl`, shell and keyboard launchers (installed to `~/pocket-os/bin`) |
 | `tests/device/` | On-device tests: session lifecycle e2e, Stage 2 shell e2e, audio e2e, memory soak, test app entry, Stage 0 touch scene |
@@ -108,6 +120,8 @@ scripts/session.sh shell restart # restart only the shell (core: scripts/session
 scripts/e2e.sh all               # lifecycle + Stage 2 shell + audio e2e on the running session
 scripts/boot-backup.sh backup    # before any apk operation (it may re-flash the boot partition)
 ssh lavender pocket-os/bin/pocket-ctl ui state   # shell state (windows, panels, adapters)
+scripts/dock-pair.sh             # Dock: install the desktop agent here, pair it with the phone
+scripts/dock-e2e.sh              # Dock end-to-end test (phone session + this computer's agent)
 scripts/logs.sh                  # fetch logs, print events
 scripts/session.sh stop          # back to the tty1 console
 ```
@@ -118,20 +132,26 @@ Highest impact first:
 
 - **No lock screen.** Phoc has no `ext-session-lock-v1`, and Phosh's lock is not
   compositor-enforced. Power-key display-off is power management, not security. Plan:
-  ADR-0006.
+  ADR-0006, [#1](https://github.com/kitnew/Pocket-OS/issues/1).
 - **No loudspeaker; jack detection broken.** The kernel/UCM for lavender has no speaker
   route, and a UCM control-name mismatch makes headphones the permanent default output.
   Volume and mute work on the real PipeWire sink. Audible playback has not been
-  physically confirmed. Details: [`docs/development/audio.md`](docs/development/audio.md).
+  physically confirmed. Details: [`docs/development/audio.md`](docs/development/audio.md),
+  [#2](https://github.com/kitnew/Pocket-OS/issues/2), [#3](https://github.com/kitnew/Pocket-OS/issues/3).
 - **Package installs can re-flash the boot partition** (pmOS boot-deploy with
   `flash_kernel_on_update`). Follow "Boot-image safety" in the development guide.
 - Phoc cannot minimise windows. Home is shown above them instead.
 - Quickshell is not packaged for Alpine. It is built from source on the device and must
-  be rebuilt after every Qt upgrade (it uses private Qt APIs).
+  be rebuilt after every Qt upgrade (it uses private Qt APIs)
+  ([#4](https://github.com/kitnew/Pocket-OS/issues/4)).
 - The device has no internet over USB. Package installs go through the host proxy
   (`scripts/device-online.sh`).
-- Core and UI state are in memory. A Core restart resets the mode to `handheld`; a shell
-  restart returns to Home in portrait mode.
+- Core and UI state are in memory. A Core restart resets the mode to `handheld` and drops
+  the Dock link ([#5](https://github.com/kitnew/Pocket-OS/issues/5)). A shell restart
+  returns to Home in portrait mode, or stays in Dock Mode if the core is docked.
+- Dock Mode works over USB only ([#6](https://github.com/kitnew/Pocket-OS/issues/6)) with
+  one paired computer. Reconnection follows a 2–60 s backoff
+  ([#7](https://github.com/kitnew/Pocket-OS/issues/7)). No automatic Dock activation.
 - A Phoc crash ends the session. Nothing starts at boot (by design during development).
 - No realtime scheduling for PipeWire (no RTKit on the device).
 

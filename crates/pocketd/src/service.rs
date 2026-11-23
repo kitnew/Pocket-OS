@@ -34,6 +34,16 @@ pub enum Error {
     InvalidMode(String),
     /// The core has not finished starting.
     NotReady(String),
+    /// Dock: no trusted computer is configured on the phone (since 1.2).
+    NotConfigured(String),
+    /// Dock: the request needs a connected computer (since 1.2).
+    NotConnected(String),
+    /// Dock: the connected computer does not offer this action (since 1.2).
+    UnknownAction(String),
+    /// Dock: the action is offered but cannot run now (since 1.2).
+    ActionUnavailable(String),
+    /// Dock: a malformed argument, e.g. an unsupported parameter type (since 1.2).
+    InvalidArgument(String),
 }
 
 impl From<CoreError> for Error {

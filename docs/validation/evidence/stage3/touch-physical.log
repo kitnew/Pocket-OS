@@ -1,0 +1,44 @@
+watch start line=108 2026-11-23T11:17:02+01:00
+action confirmed 2026-11-23T11:18:16+01:00
+agent stopped 2026-11-23T11:18:21+01:00
+agent started 2026-11-23T11:18:36+01:00
+  INFO pocket.shell.diag: event=nav.home windows=0
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=mode.request mode=dock
+  INFO pocket.shell.diag: event=dock.mode docked=true
+  INFO pocket.shell.diag: event=dock.autoconnect host="nikitapc"
+  INFO pocket.shell.diag: event=dock.state supported=true state=connecting host="nikitapc" error=- retry=0
+  INFO pocket.shell.diag: event=dock.state supported=true state=connected host="nikitapc" error=- retry=0
+  INFO pocket.shell.diag: event=dock.actions ids=desktop.notify,media.play_pause
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=dock.action id=desktop.notify
+  INFO pocket.shell.diag: event=dock.action.finished request=1 id=desktop.notify ok=true code=- message="" data={"notification_id":34}
+  INFO pocket.shell.diag: event=dock.state supported=true state=error host="nikitapc" error=connection_closed retry=2
+  INFO pocket.shell.diag: event=dock.actions ids=-
+  INFO pocket.shell.diag: event=dock.state supported=true state=connecting host="nikitapc" error=connection_closed retry=0
+  INFO pocket.shell.diag: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry=4
+  INFO pocket.shell.diag: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry=0
+  INFO pocket.shell.diag: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry=8
+  INFO pocket.shell.diag: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry=0
+  INFO pocket.shell.diag: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry=16
+  INFO pocket.shell.diag: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry=0
+  INFO pocket.shell.diag: event=dock.state supported=true state=connected host="nikitapc" error=- retry=0
+  INFO pocket.shell.diag: event=dock.actions ids=desktop.notify,media.play_pause
+  INFO pocket.shell.diag: event=mode.request mode=handheld
+  INFO pocket.shell.diag: event=dock.mode docked=false
+  INFO pocket.shell.diag: event=mode.request mode=dock
+  INFO pocket.shell.diag: event=dock.mode docked=true
+  INFO pocket.shell.diag: event=dock.action id=desktop.notify
+  INFO pocket.shell.diag: event=dock.action.finished request=2 id=desktop.notify ok=true code=- message="" data={"notification_id":37}
+  INFO pocket.shell.diag: event=dock.action id=desktop.notify
+  INFO pocket.shell.diag: event=dock.action.finished request=3 id=desktop.notify ok=true code=- message="" data={"notification_id":38}
+  INFO pocket.shell.diag: event=mode.request mode=handheld
+  INFO pocket.shell.diag: event=dock.mode docked=false
+done
