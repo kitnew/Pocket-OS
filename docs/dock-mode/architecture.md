@@ -1,6 +1,6 @@
 # Dock Mode: architecture (Stage 4)
 
-Status: **Stage 4 design**, extending the Stage 3/3.1 foundation
+Status: **implemented (Stage 4)**, extending the Stage 3/3.1 foundation
 ([ADR-0007](../decisions/0007-dock-architecture.md)). Decisions and their tradeoffs:
 [ADR-0008](../decisions/0008-dock-platform.md). Wire details: [protocol.md](protocol.md).
 What is implemented: [roadmap.md](roadmap.md).

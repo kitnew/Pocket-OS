@@ -1,6 +1,7 @@
 # ADR-0008: Dock platform — host actions, authorization, live state, notifications
 
-- Status: **Accepted** (Stage 4; implementation tracked in the [roadmap](../dock-mode/roadmap.md))
+- Status: **Accepted**, implemented in Stage 4 ([validation](../validation/stage4.md),
+  [roadmap](../dock-mode/roadmap.md))
 - Date: 2026-11-23
 - Amends: [ADR-0007](0007-dock-architecture.md) (action contract, protocol 1.1, Core 1.4)
 - Related: [#8](https://github.com/kitnew/Pocket-OS/issues/8) (local caller authorization)

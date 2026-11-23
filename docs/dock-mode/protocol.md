@@ -11,6 +11,9 @@ Two contracts carry Dock Mode:
 
 Both are additive: unknown message types, fields and dictionary keys are ignored, so a
 1.0 agent works with a 1.1 phone and the other way round (with fewer features).
+Status: **implemented** (Stage 4; contract tests in `crates/pocketd/tests/dock_contract.rs`
+and `crates/pocket-desktop-agent/tests/protocol.rs`). `Execute` parameters may also be
+wrapped once more in a variant (as `dbus-send` does); Core unwraps one level.
 
 ## Pocket Dock 1.1
 

@@ -1,6 +1,8 @@
 # ADR-0007: Dock architecture, desktop transport and agent
 
-- Status: **Accepted** (implemented and validated in Stage 3; amended in Stage 3.1)
+- Status: **Accepted** (implemented and validated in Stage 3; amended in Stage 3.1;
+  extended by [ADR-0008](0008-dock-platform.md) in Stage 4: privilege classes and grants,
+  protocol 1.1, Core 1.4)
 - Date: 2026-11-23
 - Evidence: `docs/validation/stage3.md`, `docs/validation/stage3.1.md`
 

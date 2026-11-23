@@ -1,7 +1,8 @@
 # Dock Mode: UX specification
 
-Status: **Stage 4 specification.** Implementation status per item is in the
-[roadmap](roadmap.md). Visual language: `apps/shell/theme/Theme.qml` (ADR-0004).
+Status: **implemented in Stage 4** (rendering and behaviour verified on the phone through
+IPC; a physical touch pass is still open, see [validation](../validation/stage4.md)).
+Per-item status: [roadmap](roadmap.md). Visual language: `apps/shell/theme/Theme.qml` (ADR-0004).
 
 ## Geometry
 
@@ -134,8 +135,9 @@ power: the display's own idle/power-key behaviour is unchanged.
 - **Banner** (Context Overlay): top of the Dock surface, app name, summary, one line of
   body (or "Hidden while the laptop is locked"), auto-hides after 6 s (critical: stays
   until tapped). Tap dismisses it on the phone only.
-- **History**: the Notifications widget opens a list (newest first, max 50, memory only;
-  cleared when Core restarts). "Clear" empties it.
+- **History**: the Notifications widget opens a list (newest first, max 50, kept in the
+  shell's memory: cleared by a shell restart, kept across Core restarts). "Clear" empties
+  it.
 - **Do Not Disturb**: no banners; history still fills. Persisted.
 - **Per-app mute**: from a history entry ("Mute <app>"); muted apps are dropped by Core.
   Persisted; unmute from the history header.

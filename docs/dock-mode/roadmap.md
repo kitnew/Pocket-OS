@@ -2,8 +2,8 @@
 
 Tracking issue: [#9](https://github.com/kitnew/Pocket-OS/issues/9) · milestone
 *Stage 4 — Dock Mode platform*. Status legend: **done** (implemented and verified as
-stated), **partial**, **planned**. Verification evidence goes to
-`docs/validation/stage4.md`.
+stated), **partial**, **planned**. Evidence and the remaining manual checks:
+[`docs/validation/stage4.md`](../validation/stage4.md).
 
 ## Order and dependencies
 
@@ -25,10 +25,10 @@ every action uses.
 
 | Deliverable | Status |
 |---|---|
-| Deck configuration in Core (default + user file, validation, `GetDeck`/`ReloadDeck`/`DeckChanged`) | planned |
-| Navigation model `navmodel.js` + node tests | planned |
-| DockView (rail, three layers), Ambient Home, Control Deck, Link view | planned |
-| Confirmation sheet; tile states | planned |
+| Deck configuration in Core (default + user file, validation, `GetDeck`/`ReloadDeck`/`DeckChanged`) | **done** |
+| Navigation model `navmodel.js` + node tests | **done** |
+| DockView (rail, three layers), Ambient Home, Control Deck, Link view | **done** (rendering and IPC-driven behaviour verified on hardware; physical touch pass pending) |
+| Confirmation sheet; tile states | **done** (same caveat) |
 
 Acceptance: see #10. Tests: `cargo test -p pocketd` (deck), `node tests/shell/navmodel.test.mjs`,
 `scripts/test-device.sh`, `scripts/dock-e2e.sh`.
@@ -37,27 +37,29 @@ Acceptance: see #10. Tests: `cargo test -p pocketd` (deck), `node tests/shell/na
 
 | Deliverable | Status |
 |---|---|
-| Protocol 1.1: privilege, idempotent, confirm, choices/bounds, keys, duplicate, progress | planned |
-| Agent grants + CLI (`grant`, `revoke`) | planned |
-| Agent dedup cache; Core `Retry` | planned |
-| `media.next/previous`, `volume.up/down/mute` (basic) | planned |
-| `app.launch`, `desktop.shortcut`, `session.lock`, `workflow.run` (elevated) | planned |
+| Protocol 1.1: privilege, idempotent, confirm, choices/bounds, keys, duplicate, progress | **done** |
+| Agent grants + CLI (`grant`, `revoke`, `apps`, `notifications`) | **done** |
+| Agent dedup cache; Core `Retry` | **done** |
+| `media.next/previous`, `volume.up/down/mute` (basic) | **done** (volume verified on the real KDE; media transport against fakes and Stage 3's play/pause) |
+| `app.launch`, `desktop.shortcut`, `session.lock`, `workflow.run` (elevated) | **done** (`app.launch` and the lock confirmation verified on hardware; shortcut/lock effects and workflows against fakes/tests) |
+| Predefined destinations / projects | planned ([#16](https://github.com/kitnew/Pocket-OS/issues/16)) |
 
 ## Stage 4.3 — Media and live state (#14)
 
 | Deliverable | Status |
 |---|---|
-| `subscribe` / `state` topics `host`, `media`, `system` | planned |
-| Core live cache, `GetLive`/`LiveChanged`, clear on session end | planned |
-| Home widgets: Media (with controls), Laptop | planned |
+| `subscribe` / `state` topics `host`, `media`, `system` | **done** (hardware) |
+| Core live cache, `GetLive`/`LiveChanged`, clear on session end | **done** |
+| Home widgets: Media (with controls), Laptop | **done** |
+| Active application, running tasks | not available (no reliable source; widgets hidden) |
 
 ## Stage 4.4 — Notification bridge (#15)
 
 | Deliverable | Status |
 |---|---|
-| Agent monitor + policy (opt-in, allow/deny, redact when locked, no echo) | planned |
-| Core prefs (DND, muted apps), signals | planned |
-| Banner overlay, history, DND toggle, per-app mute | planned |
+| Agent monitor + policy (opt-in, allow/deny, redact when locked, no echo) | **done** (hardware) |
+| Core prefs (DND, muted apps), signals | **done** |
+| Banner overlay, history, DND toggle, per-app mute | **done** (banner + DND verified on hardware; sheet buttons need the touch pass) |
 
 ## Testing strategy
 

@@ -1,7 +1,7 @@
 # Dock Mode: product vision
 
-Status: **Stage 4 product definition.** What exists today and what is planned is marked
-per module in the [roadmap](roadmap.md). Architecture: [architecture.md](architecture.md).
+Status: **Stage 4 product definition; Stage 4 is implemented** (see the
+[roadmap](roadmap.md) for per-module status and [validation](../validation/stage4.md)). Architecture: [architecture.md](architecture.md).
 
 ## What Dock Mode is
 

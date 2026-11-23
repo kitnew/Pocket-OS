@@ -1,6 +1,8 @@
 # Architecture overview
 
-Status: **Stage 3 (implemented)**: the Stage 2/2.5 mobile shell (home, launcher, window
+Status: **Stage 4 (implemented)**: the Dock Mode platform (Ambient Home, Control Deck,
+host actions with laptop-side grants, live laptop state, notification bridge;
+[`docs/dock-mode/`](../dock-mode/), ADR-0008) on top of Stage 3: the Stage 2/2.5 mobile shell (home, launcher, window
 switching, status bar, quick settings, on-screen keyboard, rotation, display power,
 supervised PipeWire audio), plus the **Dock Mode foundation**: a landscape Dock page, an
 authenticated link from Pocket Core to a desktop agent on a trusted computer, and
@@ -56,8 +58,8 @@ lock screen: investigation, deferred), [ADR-0007](../decisions/0007-dock-archite
 | **pocketd** (`crates/pocketd`) | D-Bus service: Core1 (mode) and Core1/Apps (catalog, launch, exit signals, inotify rescans) | Logic (delegated to the crates below) |
 | **pocket-core** | `StateManager`: mode, validation, events, revision. No I/O | Transport, system services |
 | **pocket-platform** | Desktop Entry discovery, visibility rules, safe Exec expansion, icon lookup, launch command | D-Bus, Qt |
-| **pocket-ipc** | Contract: names, protocol 1.2, keys, `DockState` | — |
-| **pocketd dock module** (`crates/pocketd/src/dock`) | `org.pocketos.Core1.Dock`: trusted-host config, link state (connect, backoff, keepalive), request acceptance and `ActionFinished` relay | Executing desktop actions; the operating mode |
+| **pocket-ipc** | Contract: names, protocol 1.4, keys, `DockState` | — |
+| **pocketd dock module** (`crates/pocketd/src/dock`) | `org.pocketos.Core1.Dock`: trusted-host config, link state (connect, backoff, keepalive), request acceptance with keys, `ActionFinished` relay and user `Retry`; deck config, live-state cache, notification relay and preferences (Stage 4) | Executing desktop actions; authorizing them (the agent does); the operating mode; navigation |
 | **pocket-dock-protocol** | Wire protocol shared with the agent: messages, Noise channel, key files | Policy |
 | **Pocket Desktop Agent** (computer) | Authenticates phones (pinned keys), advertises and executes registered actions (`desktop.notify`, `media.play_pause`) | Anything not registered; shell commands |
 | **Session layer** | Seat session, private bus, supervision of core/shell/osk/audio | Policy inside components |

@@ -109,8 +109,12 @@ pocket-ctl dock Execute string:desktop.notify dict:string:variant:
 
 1. Create `crates/pocket-desktop-agent/src/actions/<name>.rs` with a type implementing
    `Action`:
-   - `info()` returns a stable id (`area.verb`, lowercase), a label, a category, the
-     availability (+ reason) and the parameters (`ParamInfo { name, kind, required }`).
+   - `info()` returns `ActionInfo { …, ..ActionInfo::new(id, label, category) }`: a stable
+     id (`area.verb`, lowercase), the availability (`.unavailable_if(reason)`), the
+     parameters (`ParamInfo::new(name, kind, required)`, with `choices` for closed lists
+     and `min`/`max` for integers), and since Stage 4 the **privilege** (`Basic` only if
+     it is harmless when any program on the phone triggers it, else `Elevated`),
+     `idempotent` and `confirm` (ADR-0008).
      Keep it cheap: compute availability in a background task (see `media.rs`) and call
      `Changes::notify()` when it changes, so the phone updates.
    - `execute(params)` does the work and returns `Ok(json data)` or
@@ -118,11 +122,11 @@ pocket-ctl dock Execute string:desktop.notify dict:string:variant:
      by name and type. Check value limits with `string_param`.
 2. Register it in `actions::builtin`.
 3. Add a test with a fake D-Bus service, as in `tests/protocol.rs`.
-4. If the button needs parameters, give it defaults in `Shell.dockParams`. Optionally add
-   a result text in `Shell._dockFinished`.
+4. Add a tile for it in `config/dock/deck.json` (with its parameters). The Link view lists
+   every advertised action as a plain button anyway.
 
-Nothing else changes: not the protocol, Core, the bridge or the Dock page (buttons come
-from the advertised list). Rules: no generic command or shell execution, no arbitrary
+Nothing else changes: not the protocol, Core, the bridge or the Dock UI (tiles resolve
+actions from the advertised list; grants are enforced by the registry). Rules: no generic command or shell execution, no arbitrary
 paths or URLs, no parameter that is passed to a shell.
 
 ## Diagnosing connection failures
@@ -207,14 +211,111 @@ Log line: `dock: network changed; retrying sooner was_in_ms=… now_in_ms=…`. 
   Check it with `pocket-ctl ui state` (`retryMs` vs `retryShown`) against
   `pocket-ctl dock GetState` (`retry_in_ms`). They agree within a few hundred ms.
 
+## Stage 4: Dock platform (Home, Control Deck, host actions, live state, notifications)
+
+Design: [`docs/dock-mode/`](../dock-mode/), [ADR-0008](../decisions/0008-dock-platform.md).
+Validation: [`validation/stage4.md`](../validation/stage4.md).
+
+### Where things live
+
+| Where | What |
+|---|---|
+| `apps/shell/features/dock/` | `DockView` (rail + layers), `AmbientHome`, `ControlDeck`/`DeckTile`, `LinkView` (Stage 3 page), widgets, `ConfirmSheet`, `NotificationBanner`, `NotificationsSheet` |
+| `apps/shell/state/navmodel.js`, `DockNav.qml` | Navigation state machine (pure; `tests/shell/navmodel.test.mjs`) and its single timer |
+| `crates/pocketd/src/dock/deck.rs`, `prefs.rs` | Deck configuration, notification preferences |
+| `crates/pocket-desktop-agent/src/actions/` | `media`, `kde` (volume, desktop shortcuts), `apps`, `session`, `notify`; registry with grants and workflows |
+| `crates/pocket-desktop-agent/src/{mpris,live,notifications}.rs` | MPRIS tracker, live topics, notification monitor |
+| `config/dock/deck.json` | Built-in deck (compiled into pocketd) |
+
+### Granting laptop actions (on the laptop)
+
+Basic actions (notification, media transport, system volume) work out of the box.
+Elevated ones need an explicit grant; read the caveat in ADR-0008 first (any program in
+the phone's session can use a granted action, #8).
+
+```sh
+pocket-desktop-agent grant session.lock          # Lock laptop tile (asks on the phone first)
+pocket-desktop-agent grant desktop.shortcut      # Overview, Show desktop, Next/Previous desktop
+pocket-desktop-agent grant app.launch
+pocket-desktop-agent apps add org.kde.konsole    # only registered desktop IDs can be launched
+pocket-desktop-agent apps add org.kde.dolphin
+pocket-desktop-agent grant workflow.run          # plus "workflows" in config.json (below)
+pocket-desktop-agent notifications on            # forward desktop notifications (off by default)
+pocket-desktop-agent show                        # grants, apps, workflows, forwarding
+pocket-desktop-agent revoke app.launch
+systemctl --user restart pocket-desktop-agent    # every change applies after a restart
+```
+
+Workflows and notification filters are edited in
+`~/.config/pocket-desktop-agent/config.json` (keep it 0600):
+
+```json
+"workflows": [ { "id": "start-work", "label": "Start work", "steps": [
+    { "action": "app.launch", "params": { "app": "org.kde.konsole" } },
+    { "action": "desktop.shortcut", "params": { "shortcut": "desktop_next" } } ] } ],
+"notifications": { "forward": true, "allow_apps": null, "deny_apps": ["Discord"],
+                   "redact_when_locked": true }
+```
+
+Every step of a workflow is checked (including its own grant) before the first one runs.
+The agent refuses a config with nested workflows or more than 10 steps.
+
+### Customising the Control Deck (on the phone)
+
+Copy `config/dock/deck.json` to `~/.config/pocket-os/dock/deck.json`, edit it, then
+`pocket-ctl dock ReloadDeck` (or restart the core). Schema and limits:
+[architecture](../dock-mode/architecture.md#deck-configuration). An invalid file is
+reported (toast + `pocket-ctl ui state` → `dock.deck.error`) and the built-in deck is
+used. `navigation.idle_timeout_s` sets the idle return (0 = never).
+
+### Driving and inspecting it over SSH
+
+```sh
+pocket-ctl ui nav deck | home | link | pin | unpin | page:media | notifications | close | touch
+pocket-ctl ui tile general/0          # tap a tile by id (page/index): "confirm" if it asks
+pocket-ctl ui confirm true|false      # answer the confirmation sheet
+pocket-ctl ui dnd true|false
+pocket-ctl ui state                   # dock.nav, dock.deck, dock.live, dock.tiles, dock.prefs,
+                                      # dock.privileges, dock.notifications, dock.banner
+pocket-ctl dock GetLive | GetDeck | GetPreferences
+pocket-ctl dock Retry uint64:<request>   # resend an unknown outcome with its key
+pocket-ctl dock Execute string:app.launch dict:string:variant:app,variant:string:org.kde.kcalc
+```
+
+### Diagnosing
+
+| Symptom | Check |
+|---|---|
+| Tile says "Not granted on <laptop>" | `pocket-desktop-agent show`; grant + restart the agent |
+| Tile says "Not offered by <laptop>" | The agent has no such action (old agent, or `workflow.run` with no workflows) |
+| `desktop.shortcut` / `volume.*` unavailable | KDE kglobalaccel missing: agent log `kde: global shortcuts components=[…]` |
+| No media widget | Agent log `mpris: players`; `pocket-ctl dock GetLive` → `media` |
+| No notifications | `pocket-desktop-agent show` (forwarding), agent log `notifications: monitoring…`, phone `dock.prefs` (muted, DND) |
+| "Outcome unknown" on a tile | Tap = Retry with the same key; the laptop does not run it twice (unless the agent restarted meanwhile) |
+| Laptop widgets show "not updating" | `system` topic older than 3 × 5 s: agent stalled or link frozen |
+
+Logs never contain notification text: the agent logs `nid` and `redacted`, the phone
+`event=dock.notification nid=… silent=…`.
+
+### Tests
+
+| Test | Command |
+|---|---|
+| Navigation model | `node --test tests/shell/navmodel.test.mjs` (in `scripts/check.sh`) |
+| Deck, prefs, registry authorization, workflows, dedup, MPRIS/KDE/ScreenSaver/notification fakes, app launching | `cargo test -p pocketd -p pocket-desktop-agent` |
+| Core 1.4 contract (deck reload/restart, Retry with dedup, live clear/resync, 1.0 agent, notification prefs) | `cargo test -p pocketd --test dock_contract` |
+| Bridge (`DockClient` 1.4) | `scripts/test-device.sh` |
+| Hardware | `scripts/dock-platform-e2e.sh` (~3 min; temporary narrow test policy, restored on exit) |
+
 ## Security boundary
 
 The Noise link proves *which phone* talks to the agent. On the phone, **any process of
 the session user** (every app Core launches, SSH logins) can call `Dock.Execute`. The
 session bus and Phoc's Wayland globals do not isolate the shell from apps. Until
-[#8](https://github.com/kitnew/Pocket-OS/issues/8) is resolved, add only actions that are
-harmless if anyone in the session triggers them: no input injection, no lock/shutdown, no
-file or URL handling, never anything command-like.
+[#8](https://github.com/kitnew/Pocket-OS/issues/8) is resolved, new actions are either
+**basic** (harmless if anyone in the session triggers them) or **elevated** (off until the
+laptop owner grants them; ADR-0008). Never implemented: input injection, commands, file
+or URL handling from phone-supplied values, shutdown/logout.
 
 ## Tests
 

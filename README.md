@@ -6,7 +6,7 @@ the phone into a configurable desktop control surface. It runs on top of an ordi
 postmarketOS/Alpine system and standard Linux services. It is not a new distribution and
 does not include a custom compositor.
 
-**Status: Stage 3 (Dock Mode foundation) complete.** On the phone, Pocket OS is a usable
+**Status: Stage 4 (Dock Mode platform) implemented; physical touch pass pending** ([#9](https://github.com/kitnew/Pocket-OS/issues/9), [validation](docs/validation/stage4.md)). On the phone, Pocket OS is a usable
 touchscreen shell (the session is started manually). It has:
 - a Home screen and a launcher with search;
 - real application launching through Pocket Core;
@@ -17,10 +17,15 @@ touchscreen shell (the session is started manually). It has:
 - the squeekboard on-screen keyboard, with a compact landscape mode;
 - portrait/landscape/auto rotation;
 - power-key display off/on;
-- **Dock Mode**: a landscape control surface connected to a trusted computer. A small
-  desktop agent runs on the computer, the link is authenticated and encrypted (Noise, over
-  USB networking), and taps run registered desktop actions with confirmed results
-  (desktop notification; media play/pause). Pairing: `scripts/dock-pair.sh`.
+- **Dock Mode**: the docked phone becomes a companion for a trusted computer. A small
+  desktop agent runs on the computer; the link is authenticated and encrypted (Noise, over
+  USB networking). **Ambient Home** shows a large clock, the link, the phone battery and
+  live laptop state (now playing with controls, battery, lock, CPU/memory). The
+  **Control Deck** runs configurable action tiles (media, system volume, KDE desktop
+  shortcuts, app launching, screen lock, workflows) with confirmed results and safe
+  retries. Laptop **notifications** appear as banners with Do Not Disturb and per-app
+  mute. Navigation returns to Home after 15 s unless pinned. Actions beyond harmless ones
+  must be granted on the computer (ADR-0008). Pairing: `scripts/dock-pair.sh`.
 
 Core, shell, keyboard and the PipeWire audio stack restart independently. A 36-minute
 soak showed no memory leak. Package operations follow a verified boot-partition backup
@@ -97,7 +102,9 @@ Dock Mode product and technical documentation (Stage 4): [`docs/dock-mode/`](doc
 | `crates/pocket-platform/` | Desktop Entry catalog, visibility rules, safe Exec expansion, icon lookup |
 | `crates/pocketd/` | Core daemon on the session bus (zbus), incl. the Dock link (`src/dock/`), + black-box D-Bus contract tests |
 | `crates/pocket-dock-protocol/` | Dock wire protocol shared with the agent: messages, Noise channel, key files |
-| `crates/pocket-desktop-agent/` | Pocket Desktop Agent for the computer: trusted connections, action registry, desktop actions |
+| `crates/pocket-desktop-agent/` | Pocket Desktop Agent for the computer: trusted connections, action registry with grants and workflows, desktop actions (MPRIS, KDE, apps, lock), live state, notification monitor |
+| `config/dock/deck.json` | Built-in Control Deck (pages and tiles) |
+| `tests/shell/` | Shell logic unit tests (node): Dock navigation model |
 | `config/phoc.ini` | Phoc configuration for the device (scale 3) |
 | `packaging/` | OpenRC `pocket-session` service (manual), elogind power-key drop-in, scoped sudoers rule, desktop agent systemd user unit |
 | `.github/ISSUE_TEMPLATE/` | Bug and feature/improvement templates |
@@ -129,6 +136,8 @@ scripts/boot-backup.sh backup    # before any apk operation (it may re-flash the
 ssh lavender pocket-os/bin/pocket-ctl ui state   # shell state (windows, panels, adapters)
 scripts/dock-pair.sh             # Dock: install the desktop agent here, pair it with the phone
 scripts/dock-e2e.sh              # Dock end-to-end test (phone session + this computer's agent)
+scripts/dock-platform-e2e.sh     # Stage 4 Dock platform end-to-end test (Home, Deck, actions, notifications)
+pocket-desktop-agent grant session.lock   # allow an elevated laptop action (docs/development/dock.md)
 scripts/logs.sh                  # fetch logs, print events
 scripts/session.sh stop          # back to the tty1 console
 ```
@@ -161,8 +170,10 @@ Highest impact first:
   one paired computer. Reconnection follows a 2–60 s backoff, pulled forward when the USB
   link comes back. An agent-only outage waits for the backoff or "Retry now". No automatic
   Dock activation.
-- Any program in the phone's session can trigger the advertised desktop actions. Local
-  callers are not authorised yet ([#8](https://github.com/kitnew/Pocket-OS/issues/8)).
+- Any program in the phone's session can trigger the advertised desktop actions and read
+  forwarded notifications. Local callers are not authorised yet
+  ([#8](https://github.com/kitnew/Pocket-OS/issues/8)); elevated actions and notification
+  forwarding are therefore off until granted on the computer (ADR-0008).
 - A Phoc crash ends the session. Nothing starts at boot (by design during development).
 - No realtime scheduling for PipeWire (no RTKit on the device).
 
