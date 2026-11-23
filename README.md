@@ -78,7 +78,12 @@ Read [`docs/architecture/overview.md`](docs/architecture/overview.md) and the de
 [ADR-0004 shell UI](docs/decisions/0004-shell-ui-architecture.md),
 [ADR-0005 apps, windows & compositor](docs/decisions/0005-applications-and-window-management.md),
 [ADR-0006 secure lock screen](docs/decisions/0006-secure-lock-screen.md),
-[ADR-0007 Dock architecture](docs/decisions/0007-dock-architecture.md).
+[ADR-0007 Dock architecture](docs/decisions/0007-dock-architecture.md),
+[ADR-0008 Dock platform](docs/decisions/0008-dock-platform.md).
+Dock Mode product and technical documentation (Stage 4): [`docs/dock-mode/`](docs/dock-mode/)
+([vision](docs/dock-mode/product-vision.md), [UX](docs/dock-mode/ux-specification.md),
+[architecture](docs/dock-mode/architecture.md), [protocol](docs/dock-mode/protocol.md),
+[roadmap](docs/dock-mode/roadmap.md)).
 
 ## Repository layout
 

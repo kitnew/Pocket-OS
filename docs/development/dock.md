@@ -1,6 +1,8 @@
 # Dock Mode: development guide
 
-Architecture and decisions: [ADR-0007](../decisions/0007-dock-architecture.md).
+Architecture and decisions: [ADR-0007](../decisions/0007-dock-architecture.md),
+[ADR-0008](../decisions/0008-dock-platform.md). Stage 4 product, UX, architecture, protocol
+and roadmap: [`docs/dock-mode/`](../dock-mode/).
 Validation: [Stage 3 report](../validation/stage3.md),
 [Stage 3.1 report](../validation/stage3.1.md) (recovery, reconnection, security boundary).
 
