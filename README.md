@@ -25,8 +25,10 @@ touchscreen shell (the session is started manually). It has:
 Core, shell, keyboard and the PipeWire audio stack restart independently. A 36-minute
 soak showed no memory leak. Package operations follow a verified boot-partition backup
 procedure. There is **no lock screen**: no secure mechanism exists in Phoc yet (ADR-0006).
-Evidence: [`docs/validation/stage3.md`](docs/validation/stage3.md)
-([Stage 2.5](docs/validation/stage2.5.md), [Stage 2](docs/validation/stage2.md),
+Dock Mode survives Core restarts within a session and reconnects promptly when the USB
+link comes back (Stage 3.1).
+Evidence: [`docs/validation/stage3.1.md`](docs/validation/stage3.1.md)
+([Stage 3](docs/validation/stage3.md), [Stage 2.5](docs/validation/stage2.5.md), [Stage 2](docs/validation/stage2.md),
 [Stage 1](docs/validation/stage1.md), [Stage 0](docs/validation/stage0.md)).
 Outstanding work: [GitHub Issues](https://github.com/kitnew/Pocket-OS/issues)
 ([workflow](docs/development/issues.md)).
@@ -146,12 +148,16 @@ Highest impact first:
   ([#4](https://github.com/kitnew/Pocket-OS/issues/4)).
 - The device has no internet over USB. Package installs go through the host proxy
   (`scripts/device-online.sh`).
-- Core and UI state are in memory. A Core restart resets the mode to `handheld` and drops
-  the Dock link ([#5](https://github.com/kitnew/Pocket-OS/issues/5)). A shell restart
-  returns to Home in portrait mode, or stays in Dock Mode if the core is docked.
+- Core and UI state are in memory. Within a graphical session, a Core restart keeps the
+  mode and the wanted Dock link (session recovery, Stage 3.1). A new session starts in
+  Handheld. A shell restart returns to Home in portrait mode, or stays in Dock Mode if the
+  core is docked.
 - Dock Mode works over USB only ([#6](https://github.com/kitnew/Pocket-OS/issues/6)) with
-  one paired computer. Reconnection follows a 2–60 s backoff
-  ([#7](https://github.com/kitnew/Pocket-OS/issues/7)). No automatic Dock activation.
+  one paired computer. Reconnection follows a 2–60 s backoff, pulled forward when the USB
+  link comes back. An agent-only outage waits for the backoff or "Retry now". No automatic
+  Dock activation.
+- Any program in the phone's session can trigger the advertised desktop actions. Local
+  callers are not authorised yet ([#8](https://github.com/kitnew/Pocket-OS/issues/8)).
 - A Phoc crash ends the session. Nothing starts at boot (by design during development).
 - No realtime scheduling for PipeWire (no RTKit on the device).
 

@@ -83,14 +83,38 @@ impl Bus {
         }
     }
 
+    /// A core outside any graphical session (no session runtime directory, so no
+    /// recovery): it always starts fresh.
     fn core(&self, dock_dir: &Path) -> Child {
+        self.core_in(dock_dir, &dock_dir.join("no-session"))
+    }
+
+    /// A core whose `XDG_RUNTIME_DIR` is `runtime` (recovery is active when
+    /// `runtime/pocket-os` exists, as in a Pocket session).
+    fn core_in(&self, dock_dir: &Path, runtime: &Path) -> Child {
+        self.command(dock_dir, runtime, &[]).spawn().unwrap()
+    }
+
+    /// `pocketd` (or `prefix… pocketd`) with the test environment.
+    fn command(&self, dock_dir: &Path, runtime: &Path, prefix: &[&str]) -> Command {
         let bin = std::env::var("POCKETD_BIN").unwrap_or(env!("CARGO_BIN_EXE_pocketd").into());
-        Command::new(bin)
-            .env("DBUS_SESSION_BUS_ADDRESS", &self.address)
+        let mut c = match prefix.split_first() {
+            None => Command::new(bin),
+            Some((first, rest)) => {
+                let mut c = Command::new(first);
+                c.args(rest).arg(bin);
+                c
+            }
+        };
+        c.env("DBUS_SESSION_BUS_ADDRESS", &self.address)
             .env("POCKET_DOCK_DIR", dock_dir)
-            .env("POCKETD_LOG", "info")
-            .spawn()
-            .unwrap()
+            .env("XDG_RUNTIME_DIR", runtime)
+            // No application catalog to scan: these tests are about the Dock, and a
+            // host catalog scan (seconds in a debug build) slows parallel starts.
+            .env("XDG_DATA_HOME", dock_dir.join("no-data"))
+            .env("XDG_DATA_DIRS", dock_dir.join("no-data"))
+            .env("POCKETD_LOG", "info,pocketd::dock=debug");
+        c
     }
 
     async fn client(&self) -> Connection {
@@ -564,8 +588,9 @@ async fn unavailable_agent_restart_and_disconnection_recover_with_backoff() {
     wait_state(&dock, "connected", Duration::from_secs(10)).await;
     assert_eq!(dock.list_actions().await.unwrap().len(), 3);
 
-    // 5. Core restart (and clean shutdown while connected): the new core starts
-    //    disconnected (connection state is not persisted) and connects on request.
+    // 5. Core restart (and clean shutdown while connected) outside a graphical session:
+    //    there is no session recovery, so the new core starts disconnected (connection
+    //    state itself is never persisted) and connects on request.
     let status = core.terminate();
     assert!(
         status.success(),
@@ -649,4 +674,340 @@ async fn silent_agent_is_detected_by_keepalive() {
         "detected within ping + pong timeout"
     );
     fake.abort();
+}
+
+/// A session runtime directory (`<dir>/pocket-os` exists, as `pocket-session-run` makes it).
+fn session_runtime(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("pocket-run-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("pocket-os")).unwrap();
+    dir
+}
+
+/// Issue #5: within a graphical session the mode and the user's link intent survive core
+/// restarts (graceful or crash); the link comes back as a new authenticated session;
+/// an explicit Disconnect sticks; invalid recovery data means a fresh start.
+#[tokio::test]
+async fn session_recovery_of_mode_and_link_intent() {
+    let (phone, desk) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+    let port = free_port();
+    let _agent = Agent::start(&desk, Some(&phone), port, pocket_dock_protocol::PROTOCOL);
+    let dir = phone_dir("recovery", &phone, &desk, port);
+    let run = session_runtime("recovery");
+    let file = run.join("pocket-os/core-recovery.json");
+    let bus = Bus::start();
+    let conn = bus.client().await;
+
+    // New session: handheld, nothing wanted, nothing written yet.
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    let core1 = Core1Proxy::new(&conn).await.unwrap();
+    let dock = DockProxy::new(&conn).await.unwrap();
+    assert_eq!(core1.get_mode().await.unwrap(), "handheld");
+    let s = dock.get_state().await.unwrap();
+    assert!(!get::<bool>(&s, "connection_wanted"));
+    assert!(!file.exists());
+
+    // 1. Handheld → restart → handheld.
+    core.terminate();
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "handheld");
+
+    // Entering Dock Mode connects (Core policy, ADR-0007) and records the intent.
+    core1.request_mode("dock").await.unwrap();
+    let s = wait_state(&dock, "connected", WAIT).await;
+    assert!(get::<bool>(&s, "connection_wanted"));
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        saved,
+        serde_json::json!({"version": 1, "mode": "dock", "dock_wanted": true})
+    );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    // 2+3. Dock + connected → crash (SIGKILL) → dock, and a new authenticated session.
+    let _ = core.0.kill();
+    let _ = core.0.wait();
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "dock");
+    let s = wait_state(&dock, "connected", WAIT).await;
+    assert!(get::<bool>(&s, "connection_wanted"));
+    assert_eq!(
+        dock.list_actions().await.unwrap().len(),
+        3,
+        "actions resynchronised"
+    );
+    let mut finished = dock.receive_action_finished().await.unwrap();
+    let req = dock
+        .execute("test.echo", params(&[("text", "restored")]))
+        .await
+        .unwrap();
+    let a = timeout(WAIT, finished.next()).await.unwrap().unwrap();
+    assert_eq!(
+        (a.args().unwrap().request, a.args().unwrap().ok),
+        (req, true)
+    );
+    // An unread signal stream eventually stalls this connection (zbus applies
+    // backpressure), so it is not kept around.
+    drop(finished);
+
+    // 11. Repeated restarts: each core ends in exactly one session, no stale state.
+    for _ in 0..3 {
+        core.terminate();
+        core = Core(bus.core_in(&dir, &run));
+        wait_ready(&conn).await;
+        assert_eq!(core1.get_mode().await.unwrap(), "dock");
+        wait_state(&dock, "connected", WAIT).await;
+    }
+    assert_eq!(
+        std::fs::read_dir(run.join("pocket-os")).unwrap().count(),
+        1,
+        "only the recovery file, no temporary files"
+    );
+
+    // 5. Manual Disconnect → restart → still dock, and it stays disconnected.
+    dock.disconnect().await.unwrap();
+    let s = wait_state(&dock, "disconnected", WAIT).await;
+    assert!(!get::<bool>(&s, "connection_wanted"));
+    core.terminate();
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "dock");
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let s = dock.get_state().await.unwrap();
+    assert_eq!(get::<String>(&s, "state"), "disconnected");
+    assert!(!get::<bool>(&s, "connection_wanted"));
+    // Requesting the mode it is already in is not "entering" Dock Mode: still disconnected.
+    core1.request_mode("dock").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        get::<String>(&dock.get_state().await.unwrap(), "state"),
+        "disconnected"
+    );
+
+    // 7. An explicit Connect after the Disconnect works and is recorded again.
+    dock.connect().await.unwrap();
+    let s = wait_state(&dock, "connected", WAIT).await;
+    assert!(get::<bool>(&s, "connection_wanted"));
+
+    // 8. Dock → handheld → restart → handheld (the wanted link stays up in handheld).
+    core1.request_mode("handheld").await.unwrap();
+    core.terminate();
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "handheld");
+    wait_state(&dock, "connected", WAIT).await;
+
+    // 4. Dock + computer unavailable → restart → still dock, retrying, not "connected".
+    core1.request_mode("dock").await.unwrap();
+    drop(_agent);
+    wait_state(&dock, "error", WAIT).await;
+    core.terminate();
+    let mut core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "dock");
+    let s = wait_state(&dock, "error", WAIT).await;
+    assert_eq!(get::<String>(&s, "error_code"), "unreachable");
+    assert!(get::<u32>(&s, "retry_in_ms") > 0);
+    assert!(get::<bool>(&s, "connection_wanted"));
+
+    // 10. Invalid recovery data → a fresh start (handheld, nothing wanted), no crash.
+    core.terminate();
+    std::fs::write(&file, b"{\"version\":1,\"mode\":\"do").unwrap();
+    let _core = Core(bus.core_in(&dir, &run));
+    wait_ready(&conn).await;
+    assert_eq!(core1.get_mode().await.unwrap(), "handheld");
+    let s = dock.get_state().await.unwrap();
+    assert_eq!(get::<String>(&s, "state"), "disconnected");
+    assert!(!get::<bool>(&s, "connection_wanted"));
+    let _ = std::fs::remove_dir_all(&run);
+}
+
+/// The retry countdown is computed when the state is read, so it decreases between
+/// reads and a late reader (a restarted shell) sees the real time left.
+#[tokio::test]
+async fn retry_countdown_follows_the_deadline() {
+    let (phone, desk) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+    let port = free_port();
+    let dir = phone_dir("countdown", &phone, &desk, port);
+    let bus = Bus::start();
+    let _core = Core(bus.core(&dir));
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    dock.connect().await.unwrap();
+    // Wait for the 4 s wait (second failure) so there is room to observe it.
+    let start = Instant::now();
+    let (first, rev) = loop {
+        let s = dock.get_state().await.unwrap();
+        if get::<String>(&s, "state") == "error" && get::<u32>(&s, "retry_in_ms") > 2500 {
+            break (get::<u32>(&s, "retry_in_ms"), get::<u64>(&s, "revision"));
+        }
+        assert!(start.elapsed() < Duration::from_secs(8));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(first <= 4000);
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let s = dock.get_state().await.unwrap();
+    assert_eq!(get::<u64>(&s, "revision"), rev, "same scheduled retry");
+    let later: u32 = get(&s, "retry_in_ms");
+    assert!(
+        (first - later) >= 900 && (first - later) <= 1300,
+        "{first} → {later}"
+    );
+    assert_eq!(get::<u32>(&s, "retry_in"), later.div_ceil(1000));
+    // Retry now: no retry scheduled while connecting; Disconnect clears it.
+    dock.connect().await.unwrap();
+    dock.disconnect().await.unwrap();
+    let s = wait_state(&dock, "disconnected", WAIT).await;
+    assert_eq!(get::<u32>(&s, "retry_in_ms"), 0);
+    assert_eq!(get::<u32>(&s, "retry_in"), 0);
+}
+
+/// Issue #7 through the real kernel path: the core runs in its own network namespace
+/// (`unshare -rn`, no root needed) where adding an interface produces genuine rtnetlink
+/// notifications. A long pending retry is pulled forward once, a burst of further changes
+/// does not cause more attempts, and nothing happens after Disconnect.
+#[tokio::test]
+async fn network_change_pulls_a_pending_retry_forward() {
+    use std::process::Stdio;
+    let ids = |flag: &str| {
+        String::from_utf8(Command::new("id").arg(flag).output().unwrap().stdout)
+            .unwrap()
+            .trim()
+            .to_owned()
+    };
+    let (uid, gid) = (ids("-u"), ids("-g"));
+    // Everything the test needs: an unprivileged netns, dummy links, nested uid mapping.
+    let probe = format!(
+        "ip link set lo up && ip link add p0 type dummy && unshare -U --map-user={uid} --map-group={gid} true"
+    );
+    if !Command::new("unshare")
+        .args(["-rn", "sh", "-c", &probe])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        eprintln!(
+            "SKIP: unprivileged network namespaces (util-linux unshare, dummy links) unavailable"
+        );
+        return;
+    }
+    let (phone, desk) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+    let port = free_port();
+    let dir = phone_dir("netns", &phone, &desk, port);
+    let ctl = dir.join("ctl");
+    let bus = Bus::start();
+    // In the namespace: loopback up (the configured address, nothing listens there),
+    // then run pocketd while a helper adds dummy interfaces when the test asks for it.
+    // pocketd runs in a nested user namespace mapped back to our uid: the bus
+    // authenticates it by uid (EXTERNAL), and namespace-root would not match.
+    let script = format!(
+        r#"ip link set lo up || exit 1
+unshare -U --map-user={uid} --map-group={gid} "$0" & core=$!
+n=0
+while kill -0 $core 2>/dev/null; do
+  if [ -e "{ctl}" ]; then
+    rm -f "{ctl}"; n=$((n+1)); ip link add d$n type dummy; ip link set d$n up
+  fi
+  sleep 0.05
+done"#,
+        ctl = ctl.display(),
+    );
+    let _core = Core(
+        bus.command(
+            &dir,
+            &dir.join("no-session"),
+            &["unshare", "-rn", "sh", "-c", &script],
+        )
+        .spawn()
+        .unwrap(),
+    );
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let mut states = dock.inner().receive_signal("StateChanged").await.unwrap();
+    let trigger = || std::fs::write(&ctl, b"").unwrap();
+
+    // Fail until the wait is 8 s (attempts at 0, 2, 6 s).
+    dock.connect().await.unwrap();
+    let start = Instant::now();
+    loop {
+        let s = dock.get_state().await.unwrap();
+        if get::<String>(&s, "state") == "error" && get::<u32>(&s, "retry_in_ms") > 6000 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(12),
+            "backoff did not reach 8 s"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Past MIN_GAP after that attempt, so the hint's own settle delay is what we see.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    while timeout(Duration::from_millis(100), states.next())
+        .await
+        .is_ok()
+    {}
+
+    // A carrier-up edge: the next attempt starts ~1 s later instead of ~7 s later.
+    let hinted = Instant::now();
+    trigger();
+    let mut connecting = Vec::new();
+    let deadline = Instant::now() + Duration::from_millis(2500); // before the 2 s backoff retry
+    while Instant::now() < deadline {
+        if let Ok(Some(m)) = timeout(Duration::from_millis(100), states.next()).await {
+            let (d,): (HashMap<String, OwnedVariant>,) = m.body().deserialize().unwrap();
+            if get::<String>(&d, "state") == "connecting" {
+                connecting.push(hinted.elapsed());
+            }
+        }
+    }
+    assert_eq!(connecting.len(), 1, "one early attempt: {connecting:?}");
+    assert!(
+        connecting[0] >= Duration::from_millis(800) && connecting[0] <= Duration::from_millis(1700),
+        "attempt {:?} after the hint",
+        connecting[0]
+    );
+    // The backoff restarted: the next wait is 2 s again.
+    let s = wait_state(&dock, "error", WAIT).await;
+    assert!(get::<u32>(&s, "retry_in_ms") <= 2000);
+
+    // A burst of changes inside the cooldown: no attempts beyond the normal backoff
+    // (2 s, then 4 s): at most two in the next 5 s.
+    for _ in 0..5 {
+        trigger();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    let mut attempts = 0;
+    let deadline = Instant::now() + Duration::from_millis(4200);
+    while Instant::now() < deadline {
+        if let Ok(Some(m)) = timeout(Duration::from_millis(100), states.next()).await {
+            let (d,): (HashMap<String, OwnedVariant>,) = m.body().deserialize().unwrap();
+            if get::<String>(&d, "state") == "connecting" {
+                attempts += 1;
+            }
+        }
+    }
+    assert!(
+        attempts <= 2,
+        "{attempts} attempts during a burst of network changes"
+    );
+
+    // After Disconnect, network changes do nothing.
+    dock.disconnect().await.unwrap();
+    wait_state(&dock, "disconnected", WAIT).await;
+    tokio::time::sleep(Duration::from_secs(11)).await; // past the cooldown
+    let rev: u64 = get(&dock.get_state().await.unwrap(), "revision");
+    trigger();
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let s = dock.get_state().await.unwrap();
+    assert_eq!(get::<String>(&s, "state"), "disconnected");
+    assert_eq!(get::<u64>(&s, "revision"), rev);
 }

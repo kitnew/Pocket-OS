@@ -1,8 +1,8 @@
 # ADR-0007: Dock architecture, desktop transport and agent
 
-- Status: **Accepted** (implemented and validated in Stage 3)
+- Status: **Accepted** (implemented and validated in Stage 3; amended in Stage 3.1)
 - Date: 2026-11-23
-- Evidence: `docs/validation/stage3.md`
+- Evidence: `docs/validation/stage3.md`, `docs/validation/stage3.1.md`
 
 ## Context
 
@@ -46,8 +46,14 @@ crates/pocket-dock-protocol: messages, framing, Noise channel, key files (shared
 **Mode and connection are separate.** `Mode` keeps exactly two values. The link has its
 own `DockState`: `disconnected`, `connecting`, `connected`, `error`. Dock Mode renders and
 can be left with no computer present. A link can stay up in Handheld Mode. The only
-coupling is UI policy in `Shell.qml`: entering Dock Mode calls `Connect` when a host is
-configured and the link is `disconnected`. Leaving Dock Mode does not disconnect.
+coupling is Core policy (Stage 3.1; in Stage 3 it was in `Shell.qml`): entering Dock Mode
+(handheld → dock) acts as `Connect` when the link is `disconnected` and a host is
+configured. Leaving Dock Mode does not disconnect. The shell never connects on its own.
+
+**Intent is separate from state** (Stage 3.1). `connection_wanted` records what the user
+asked for: `Connect` and entering Dock Mode set it, `Disconnect` clears it, and nothing
+else changes it. The actual `DockState` is whatever the link task achieved. Automatic
+reconnection (backoff, network hints, core restart) only happens while it is set.
 
 **Processes.** No new phone process: the Dock module lives in `pocketd` as one D-Bus
 object and one Tokio task. The computer runs one small agent as the desktop user
@@ -122,8 +128,10 @@ agent on an untrusted network is reviewed. Internet access is out of scope.
 - One session per trusted phone. A newer authenticated session replaces the old one, so a
   phone recovering from a half-open connection can reconnect immediately.
 
-### Core contract: `org.pocketos.Core1.Dock` (protocol 1.2)
+### Core contract: `org.pocketos.Core1.Dock` (protocol 1.2, 1.3)
 
+Since 1.3 (Stage 3.1) the state also has `retry_in_ms` (time left, computed when the state
+is produced) and `connection_wanted`; `retry_in` is computed the same way.
 `GetState → a{sv}`, `ListActions → aa{sv}`, `Connect()`, `Disconnect()`,
 `Execute(s action, a{sv} params) → t request`; signals `StateChanged(a{sv})`,
 `ActionsChanged(aa{sv})`, `ActionFinished(t request, s action, b ok, s error_code,
@@ -151,17 +159,32 @@ disconnected ─Connect─► connecting ─welcome─► connected
 
 - Transient failures (`unreachable`, `timeout`, `connection_closed`, `connection_error`,
   `handshake_failed`, `protocol_error`, `replaced`) are retried with that backoff. A
-  manual `Connect` retries at once. There is never more than one attempt every 2 s.
+  manual `Connect` retries at once. Automatic attempts never start less than 2 s apart.
+- Network hints (Stage 3.1, #7): `pocketd/src/dock/netwatch.rs` reads rtnetlink (carrier-up
+  edges, new IPv4 addresses, new main-table routes). While a retry is pending, a hint moves
+  it to 1 s from now (but ≥ 2 s after the previous attempt) and restarts the backoff, at
+  most once per 10 s, and only if the kernel has a route to the host. NetworkManager's
+  D-Bus API was not used: it is on the system bus, and pocketd needs only "the network
+  changed". Polling was rejected.
 - `unauthorized`, `host_key_mismatch` and `incompatible_protocol` stop and wait for the
   user.
 - Keepalive: a `ping` after 20 s without traffic from the phone; no answer within 8 s
   ends the session. A frozen agent or a pulled cable is therefore noticed within about
   30 s. A killed agent is noticed at once (TCP FIN/RST). The agent closes sessions idle
   for 60 s.
-- Connection state is transient and never persisted. A restarted core starts
-  `disconnected`. A Core restart also resets the mode to `handheld` (ADR-0002 behaviour,
-  tracked in [#5](https://github.com/kitnew/Pocket-OS/issues/5)). A shell restart re-reads
-  everything and keeps the link.
+- Connection state is transient and never persisted. **Session recovery** (Stage 3.1, #5):
+  pocketd keeps `{version, mode, dock_wanted}` in `$XDG_RUNTIME_DIR/pocket-os/core-recovery.json`
+  (atomic, 0600; the directory is created and deleted by `pocket-session-run`, so it never
+  outlives the graphical session, and pocketd never creates it). A restarted core starts in
+  that mode and, if the link was wanted, connects again with a new authenticated session.
+  Sockets, keys, requests and timers are never saved. Invalid content means a fresh start.
+  A new session starts in Handheld. A shell restart re-reads everything and keeps the link.
+- Retry countdown: Core owns the deadline. `DockClient` counts down from `retry_in_ms` with a
+  monotonic `QDeadlineTimer`, ticking once per second only while the Dock page is visible.
+- Local callers are not authenticated: any process of the session user can call
+  `Execute` (Stage 3.1 investigation, [#8](https://github.com/kitnew/Pocket-OS/issues/8)).
+  The Noise link authenticates the phone, not the program on it. Privileged,
+  destructive or input-injecting desktop actions must not be added before #8 is resolved.
 - Orientation: while the core reports `dock`, the shell keeps the output landscape. The
   user's rotation preference (`rotationMode`) is not changed and applies again when
   Dock Mode ends.

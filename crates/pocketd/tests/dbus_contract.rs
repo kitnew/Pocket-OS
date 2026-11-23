@@ -77,7 +77,13 @@ impl Bus {
     fn spawn_core_with(&self, env: &[(&str, &str)]) -> Child {
         // POCKETD_BIN: run a cross-built test binary on the device against a deployed pocketd.
         let bin = std::env::var("POCKETD_BIN").unwrap_or(env!("CARGO_BIN_EXE_pocketd").into());
+        // Outside any Pocket session: a runtime directory without `pocket-os/`, so no
+        // session recovery (and never the real session's file on the device).
         Command::new(bin)
+            .env(
+                "XDG_RUNTIME_DIR",
+                std::env::temp_dir().join("pocketd-test-no-session"),
+            )
             .envs(env.iter().copied())
             .env("DBUS_SESSION_BUS_ADDRESS", &self.address)
             .env("POCKETD_LOG", "debug")
@@ -158,10 +164,10 @@ async fn contract_state_signals_errors_and_restart() {
     // Initial state.
     let (version, major, minor) = proxy.get_version().await.unwrap();
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
-    assert_eq!((major, minor), (1, 2));
+    assert_eq!((major, minor), (1, 3));
     let state = proxy.get_state().await.unwrap();
     assert_eq!(get::<String>(&state, "mode"), "handheld");
-    assert_eq!(get::<String>(&state, "protocol"), "1.2");
+    assert_eq!(get::<String>(&state, "protocol"), "1.3");
     assert!(get::<bool>(&state, "ready"));
     let rev0: u64 = get(&state, "revision");
     assert_eq!(proxy.get_mode().await.unwrap(), "handheld");
@@ -214,7 +220,8 @@ async fn contract_state_signals_errors_and_restart() {
     assert!(!has_owner(&conn).await);
     assert!(proxy.get_mode().await.is_err());
 
-    // Restart: same proxy works again, fresh in-memory state.
+    // Restart: same proxy works again, fresh in-memory state (no session recovery
+    // outside a Pocket session).
     let mut core = bus.spawn_core();
     wait_ready(&conn).await;
     assert_eq!(proxy.get_mode().await.unwrap(), "handheld");

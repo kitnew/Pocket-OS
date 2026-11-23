@@ -19,6 +19,14 @@ Item {
 
     function title(s) { return s.length ? s.charAt(0).toUpperCase() + s.slice(1) : "" }
 
+    // The live countdown ticks (once per second, in DockClient) only while this page is
+    // on a lit screen; the deadline itself is Core's.
+    Binding {
+        target: root.dock
+        property: "countdownActive"
+        value: root.visible && Shell.display.on
+    }
+
     // What to say when no actions can be shown.
     readonly property string message: {
         if (!Shell.coreConnected)
@@ -30,7 +38,9 @@ Item {
         if (dock.state === "connecting")
             return "Connecting to " + dock.hostName + " (" + dock.address + ")…"
         if (dock.state === "error")
-            return dock.errorText + (dock.retryIn > 0 ? "\nRetrying in " + dock.retryIn + " s." : "")
+            return dock.errorText + (!dock.retryScheduled ? ""
+                : dock.retrySeconds > 0 ? "\nReconnecting in " + dock.retrySeconds + " s"
+                : "\nReconnecting…")
         if (dock.state === "disconnected")
             return "Not connected to " + dock.hostName + "."
         return dock.actions.length === 0 ? dock.hostName + " offers no actions." : ""

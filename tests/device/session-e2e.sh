@@ -36,6 +36,11 @@ wait_log() {
 check() { # check DESCRIPTION MARK REGEX [SECONDS]
 	if wait_log "$2" "$3" "${4:-10}"; then ok "$1"; else bad "$1 (no /$3/ in log)"; fi
 }
+# nolog DESCRIPTION MARK REGEX: nothing matching since MARK (checked after a short settle).
+nolog() {
+	sleep 1
+	if tail -n +"$(($2 + 1))" "$log" | grep -aqE "$3"; then bad "$1 (/$3/ in log)"; else ok "$1"; fi
+}
 pid() { cat "$run/$1.pid" 2>/dev/null; }
 mode() { dbus-send --session --print-reply=literal --dest=org.pocketos.Core1 /org/pocketos/Core1 org.pocketos.Core1.GetMode 2>/dev/null | tr -d ' '; }
 request() { dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1 org.pocketos.Core1.RequestMode "string:$1" >/dev/null 2>&1; }
@@ -78,7 +83,10 @@ shot 3-core-stopped
 m=$(mark)
 "$ctl" start core
 check "UI reconnects to the new core" "$m" "event=core.status status=connected.*connections=[2-9]"
-check "UI resynchronised to fresh core state (handheld)" "$m" "event=core.mode mode=handheld"
+check "UI resynchronised to the new core (state read)" "$m" "pocket.core.client.*state read mode=dock"
+# Stage 3.1 (issue #5): the mode is session state, restored by the new core.
+[ "$(mode)" = '"dock"' ] || [ "$(mode)" = dock ] && ok "new core restored the session's mode (dock)" || bad "new core mode: $(mode)"
+nolog "UI never flipped to handheld" "$m" "event=core.mode mode=handheld"
 [ "$(pid shell)" = "$shell0" ] && ok "shell not restarted ($shell0)" || bad "shell restarted"
 shot 3-core-restarted
 
@@ -92,7 +100,8 @@ m=$(mark)
 check "supervisor saw the crash" "$m" "name=core event=exited pid=$core0 signal=ABRT reason=unexpected failures=[1-4]/"
 wait_pid core "$core0" && ok "core restarted automatically (pid $(pid core))" || bad "core not restarted"
 check "UI reconnected after crash" "$m" "event=core.status status=connected"
-check "UI shows the restarted core's state" "$m" "event=core.mode mode=handheld"
+check "UI read the restarted core's state" "$m" "pocket.core.client.*state read mode=dock"
+nolog "restored mode: UI never flipped to handheld" "$m" "event=core.mode mode=handheld"
 [ "$(pgrep -x phoc)" = "$phoc0" ] && ok "Phoc untouched" || bad "Phoc changed"
 
 echo "== 5. shell crash -> Phoc and Core keep running -> shell restored with Core state"

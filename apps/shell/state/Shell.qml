@@ -29,7 +29,9 @@ QtObject {
             mode: mode, ok: ok, error: ok ? "-" : JSON.stringify(error) })
     }
     readonly property bool coreConnected: core.status === CoreClient.Connected
-    // Dock Mode is the core's mode, never a local flag (ADR-0007).
+    // Dock Mode is the core's mode, never a local flag (ADR-0007). It survives core
+    // restarts within the session (the core restores it), and CoreClient keeps the last
+    // mode while the core is away, so a restart does not flip the UI out and back.
     readonly property bool docked: core.mode === "dock"
     onDockedChanged: {
         diag("dock.mode", { docked: docked })
@@ -39,7 +41,6 @@ QtObject {
             panel = ""
             homePage = "home"   // the Dock page
             homeRequested = true
-            autoConnectDock()
         }
     }
 
@@ -61,28 +62,17 @@ QtObject {
     }
     property string _dockLogged: ""
     function _dockChanged() {
-        const line = [dock.supported, dock.state, dock.hostName, dock.errorCode, dock.retryIn].join()
+        const line = [dock.supported, dock.state, dock.hostName, dock.errorCode, dock.retryIn, dock.connectionWanted].join()
         if (line === _dockLogged)
             return
         _dockLogged = line
         diag("dock.state", { supported: dock.supported, state: dock.state || "-", host: JSON.stringify(dock.hostName),
-                             error: dock.errorCode || "-", retry: dock.retryIn })
-        // Only when the Dock object (re)appears (shell or core start), never on later state
-        // changes: a user's Disconnect while docked must stick.
-        const appeared = dock.supported && !_dockWasSupported
-        _dockWasSupported = dock.supported
-        if (appeared && docked)
-            autoConnectDock()
+                             error: dock.errorCode || "-", retry_ms: dock.retryRemainingMs(), wanted: dock.connectionWanted })
     }
-    property bool _dockWasSupported: false
-    // Entering Dock Mode connects to the paired computer when nothing else is going on.
-    // Failures that need the user (unauthorized, key mismatch) are not retried here.
-    function autoConnectDock() {
-        if (dock.supported && dock.configured && dock.state === "disconnected") {
-            diag("dock.autoconnect", { host: JSON.stringify(dock.hostName) })
-            dock.connectHost()
-        }
-    }
+    // The connection policy is Core's (ADR-0007, Stage 3.1): entering Dock Mode connects,
+    // Disconnect is remembered for the session, and a restarted core reconnects only if
+    // the link was wanted. The shell never connects on its own, so no UI state change
+    // (a shell or core restart, the Dock object reappearing) can override a Disconnect.
     function connectDock() {
         diag("dock.connect", { state: dock.state })
         dock.connectHost()

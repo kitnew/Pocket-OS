@@ -1,0 +1,86 @@
+2026-11-23T13:59:08.109293Z  INFO pocket_desktop_agent::actions::media: media player changed player=org.mpris.MediaPlayer2.elisa present=true
+2026-11-23T13:59:18.438885Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=4 peer=172.16.42.1:53874 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T13:59:22.567801Z  INFO pocket_desktop_agent::actions::media: media play/pause player=elisa
+2026-11-23T13:59:22.567831Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=4 id=1 action=media.play_pause ms=1
+2026-11-23T13:59:37.268766Z  INFO pocket_desktop_agent::actions::media: media player changed player=org.mpris.MediaPlayer2.elisa present=false
+2026-11-23T13:59:37.270195Z  INFO pocket_desktop_agent::server: actions changed phone=lavender session=4 available=["desktop.notify", "media.play_pause"]
+2026-11-23T14:00:31.985368Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=4
+2026-11-23T14:00:55.072688Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=5 peer=172.16.42.1:47614 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:01:01.717380Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=7
+2026-11-23T14:01:01.717395Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=5 id=2 action=desktop.notify ms=20
+2026-11-23T14:01:15.370841Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=8
+2026-11-23T14:01:15.370856Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=5 id=3 action=desktop.notify ms=23
+2026-11-23T14:01:24.032037Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=5
+2026-11-23T14:01:27.866616Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=6 peer=172.16.42.1:60720 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:02:29.286400Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=9
+2026-11-23T14:02:29.286419Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=6 id=4 action=desktop.notify ms=23
+2026-11-23T14:02:32.798738Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=6
+2026-11-23T14:02:32.877976Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=7 peer=172.16.42.1:56142 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:02:41.518926Z  INFO pocket_desktop_agent: SIGTERM: stopping
+Stopping pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock)...
+Stopped pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+Started pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+2026-11-23T14:03:07.015596Z  INFO pocket_desktop_agent: pocket-desktop-agent listening version="0.1.0" listen=172.16.42.2:47130 key=19af9ab800c8 trusted=["lavender:50f6954cce67"] host_name=nikitapc
+2026-11-23T14:03:07.016924Z  INFO pocket_desktop_agent::actions::media: media players players={"org.mpris.MediaPlayer2.chromium.instance7906", "org.mpris.MediaPlayer2.firefox.instance_1_134"}
+2026-11-23T14:03:22.801461Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:57228 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:04:48.172172Z  INFO pocket_desktop_agent::server: replacing previous session phone=lavender old_session=1
+2026-11-23T14:04:48.172187Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=2 peer=172.16.42.1:39926 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:04:48.172268Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=1
+2026-11-23T14:05:35.896318Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=2
+2026-11-23T14:05:36.672011Z  INFO pocket_desktop_agent: SIGTERM: stopping
+Stopping pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock)...
+Stopped pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+Started pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+2026-11-23T14:05:47.110757Z  INFO pocket_desktop_agent: pocket-desktop-agent listening version="0.1.0" listen=172.16.42.2:47130 key=19af9ab800c8 trusted=["lavender:50f6954cce67"] host_name=nikitapc
+2026-11-23T14:05:47.111937Z  INFO pocket_desktop_agent::actions::media: media players players={"org.mpris.MediaPlayer2.chromium.instance7906", "org.mpris.MediaPlayer2.firefox.instance_1_134"}
+2026-11-23T14:05:49.489427Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:33130 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:05:54.680159Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=12
+2026-11-23T14:05:54.680200Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=1 id=1 action=desktop.notify ms=46
+2026-11-23T14:06:04.851934Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=1
+2026-11-23T14:06:09.943624Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=2 peer=172.16.42.1:53760 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+Stopping pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock)...
+2026-11-23T14:06:11.249759Z  INFO pocket_desktop_agent: SIGTERM: stopping
+Stopped pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+Started pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+2026-11-23T14:06:11.297762Z  INFO pocket_desktop_agent: pocket-desktop-agent listening version="0.1.0" listen=172.16.42.2:47130 key=19af9ab800c8 trusted=["lavender:50f6954cce67"] host_name=nikitapc
+2026-11-23T14:06:11.298629Z  INFO pocket_desktop_agent::actions::media: media players players={"org.mpris.MediaPlayer2.chromium.instance7906", "org.mpris.MediaPlayer2.firefox.instance_1_134"}
+2026-11-23T14:06:13.264154Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:53770 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:06:14.411060Z  INFO pocket_desktop_agent: SIGTERM: stopping
+Stopping pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock)...
+Stopped pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+Started pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+2026-11-23T14:06:18.324132Z  INFO pocket_desktop_agent: pocket-desktop-agent listening version="0.1.0" listen=172.16.42.2:47130 key=19af9ab800c8 trusted=["lavender:50f6954cce67"] host_name=nikitapc
+2026-11-23T14:06:18.325150Z  INFO pocket_desktop_agent::actions::media: media players players={"org.mpris.MediaPlayer2.chromium.instance7906", "org.mpris.MediaPlayer2.firefox.instance_1_134"}
+2026-11-23T14:06:20.427272Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:46642 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+pocket-desktop-agent.service: Sent signal SIGSTOP to main process 39510 (pocket-desktop-) on client request.
+pocket-desktop-agent.service: Sent signal SIGCONT to main process 39510 (pocket-desktop-) on client request.
+2026-11-23T14:06:50.117851Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=1
+2026-11-23T14:06:50.445516Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=2 peer=172.16.42.1:43072 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:06:58.525491Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=13
+2026-11-23T14:06:58.525551Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=2 id=2 action=desktop.notify ms=57
+2026-11-23T14:07:00.417427Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=2
+2026-11-23T14:07:00.500273Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=3 peer=172.16.42.1:50838 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:04.005277Z  INFO pocket_desktop_agent::actions::notify: desktop notification shown notification_id=14
+2026-11-23T14:07:04.005305Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=3 id=1 action=desktop.notify ms=64
+2026-11-23T14:07:07.303801Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=3
+2026-11-23T14:07:08.380878Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=4 peer=172.16.42.1:47822 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:09.893242Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=4
+2026-11-23T14:07:09.959943Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=5 peer=172.16.42.1:47824 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:10.859467Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=5
+2026-11-23T14:07:10.916655Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=6 peer=172.16.42.1:47836 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:11.833491Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=6
+2026-11-23T14:07:11.893857Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=7 peer=172.16.42.1:47850 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:14.443879Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=7
+2026-11-23T14:07:35.961362Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=8 peer=172.16.42.1:57456 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:07:36.776350Z  INFO pocket_desktop_agent: SIGTERM: stopping
+Stopping pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock)...
+Stopped pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+Started pocket-desktop-agent.service - Pocket Desktop Agent (Pocket OS Dock).
+2026-11-23T14:07:58.828637Z  INFO pocket_desktop_agent: pocket-desktop-agent listening version="0.1.0" listen=172.16.42.2:47130 key=19af9ab800c8 trusted=["lavender:50f6954cce67"] host_name=nikitapc
+2026-11-23T14:07:58.829190Z  INFO pocket_desktop_agent::actions::media: media players players={"org.mpris.MediaPlayer2.chromium.instance7906", "org.mpris.MediaPlayer2.firefox.instance_1_134"}
+2026-11-23T14:08:04.265253Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:43962 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:08:06.389814Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=1
+2026-11-23T14:08:06.456877Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=2 peer=172.16.42.1:42320 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:08:07.731960Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=2
+2026-11-23T14:08:09.176934Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=3 peer=172.16.42.1:42336 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:08:10.486809Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=3

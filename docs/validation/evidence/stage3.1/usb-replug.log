@@ -1,0 +1,5 @@
+2026-11-23T14:03:22.801461Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=1 peer=172.16.42.1:57228 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:04:48.172172Z  INFO pocket_desktop_agent::server: replacing previous session phone=lavender old_session=1
+2026-11-23T14:04:48.172187Z  INFO pocket_desktop_agent::server: phone connected phone=lavender session=2 peer=172.16.42.1:39926 client=pocketd 0.1.0 device=nikita-lavender protocol=1.0
+2026-11-23T14:04:48.172268Z  INFO pocket_desktop_agent::server: phone disconnected phone=lavender session=1
+enp0s20f0u1u3    UP             172.16.42.2/24 fe80::f0df:6d5a:902d:8623/64 

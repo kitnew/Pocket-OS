@@ -8,6 +8,9 @@ use std::collections::HashMap;
 
 use pocket_core::{Command, CoreError, Event, Mode, Snapshot, StateManager};
 use pocket_ipc::dbus::state_key;
+
+use crate::dock::DockControl;
+use crate::recovery;
 use tracing::{info, warn};
 use zbus::{DBusError, Variant, interface, message::Header, object_server::SignalEmitter};
 
@@ -56,12 +59,17 @@ impl From<CoreError> for Error {
 
 pub struct CoreService {
     state: StateManager,
+    recovery: recovery::Handle,
+    dock: DockControl,
 }
 
 impl CoreService {
-    pub fn new() -> Self {
+    /// `mode` is the recovered mode (handheld in a new session).
+    pub fn new(mode: Mode, recovery: recovery::Handle, dock: DockControl) -> Self {
         Self {
-            state: StateManager::new(),
+            state: StateManager::restored(mode),
+            recovery,
+            dock,
         }
     }
 
@@ -69,12 +77,6 @@ impl CoreService {
     pub async fn mark_ready(&mut self, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         let events = self.state.mark_ready();
         publish(emitter, &events).await
-    }
-}
-
-impl Default for CoreService {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -145,6 +147,14 @@ impl CoreService {
             .inspect_err(|e| {
                 warn!(%sender, error = %e, "rejected RequestMode");
             })?;
+        for event in &events {
+            if let Event::ModeChanged { to, .. } = event {
+                self.recovery.set_mode(*to);
+                if *to == Mode::Dock {
+                    self.dock.entered_dock_mode();
+                }
+            }
+        }
         publish(&emitter, &events).await?;
         Ok(())
     }

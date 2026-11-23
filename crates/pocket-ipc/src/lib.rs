@@ -12,8 +12,9 @@ use std::str::FromStr;
 /// Version of the Pocket IPC contract. The major is part of the D-Bus names (`Core1`);
 /// bump it (and the names) on any incompatible change, bump the minor on additions.
 /// History: 1.0 core state and modes (Stage 1); 1.1 adds the application object
-/// [`dbus::apps`] (Stage 2); 1.2 adds the Dock object [`dbus::dock`] (Stage 3).
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 2 };
+/// [`dbus::apps`] (Stage 2); 1.2 adds the Dock object [`dbus::dock`] (Stage 3); 1.3 adds
+/// the Dock state keys `retry_in_ms` and `connection_wanted` (Stage 3.1).
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 3 };
 
 /// D-Bus names of the core service (session bus).
 pub mod dbus {
@@ -88,8 +89,10 @@ pub mod dbus {
     /// - `ListActions() -> aa{sv}`: actions advertised by the connected agent
     ///   ([`action_key`]); empty unless connected.
     /// - `Connect()`: (re)reads the host configuration and starts connecting; retries
-    ///   transient failures with backoff until `Disconnect`. Error `…Error.NotConfigured`.
-    /// - `Disconnect()`: closes the link and stops retrying.
+    ///   transient failures with backoff until `Disconnect`; a pending retry is pulled
+    ///   forward when the network comes back. Sets `connection_wanted`.
+    ///   Error `…Error.NotConfigured`.
+    /// - `Disconnect()`: closes the link, stops retrying, clears `connection_wanted`.
     /// - `Execute(s action, a{sv} params) -> t request`: *accepts* a request (connected,
     ///   advertised, available); the outcome arrives later as `ActionFinished` once the
     ///   computer confirmed it. Errors `…Error.NotConnected`, `…Error.UnknownAction`,
@@ -120,8 +123,16 @@ pub mod dbus {
             pub const ERROR_CODE: &str = "error_code";
             /// `s`: human-readable reason of the last failure.
             pub const ERROR: &str = "error";
-            /// `u`: seconds until the next automatic attempt (0 = none scheduled).
+            /// `u`: seconds until the next automatic attempt, rounded up, computed when
+            /// the state is produced (0 = none scheduled).
             pub const RETRY_IN: &str = "retry_in";
+            /// `u`: the same in milliseconds (at least 1 while an attempt is scheduled).
+            /// Clients count down from the moment they receive it (since 1.3).
+            pub const RETRY_IN_MS: &str = "retry_in_ms";
+            /// `b`: the user wants this link: set by `Connect` and by entering Dock
+            /// Mode, cleared by `Disconnect`. Survives core restarts within the
+            /// graphical session; a restarted core reconnects when it is set (since 1.3).
+            pub const CONNECTION_WANTED: &str = "connection_wanted";
             /// `t`: strictly increasing per core process.
             pub const REVISION: &str = "revision";
         }
@@ -270,7 +281,7 @@ mod tests {
         assert!(v(1, 0).is_compatible_with(v(1, 2)));
         assert!(!v(1, 2).is_compatible_with(v(1, 0)));
         assert!(!v(2, 0).is_compatible_with(v(1, 9)));
-        assert_eq!(PROTOCOL_VERSION.to_string(), "1.2");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "1.3");
     }
 
     #[test]

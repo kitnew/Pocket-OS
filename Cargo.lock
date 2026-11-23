@@ -564,6 +564,7 @@ dependencies = [
  "pocket-dock-protocol",
  "pocket-ipc",
  "pocket-platform",
+ "rustix",
  "serde_json",
  "tokio",
  "tracing",

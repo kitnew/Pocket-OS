@@ -1,0 +1,107 @@
+pocket-session: start 2026-11-23 15:08:11 session=c872 seat=seat0 vt=7 runtime=/run/user/10000
+pocket.session: event=starting bus=unix:path=/tmp/dbus-KwtvcKME5F,guid=d2a8a8b401f579f40c75ca456b0448cb wayland=wayland-0
+pocket.session: event=started phoc=8537 core_supervisor=8535 audio_supervisor=8536
+pocket.supervise: name=audio event=supervisor.started pid=8536 max=5 window=60s
+pocket.supervise: name=core event=supervisor.started pid=8535 max=5 window=60s
+pocket.supervise: name=audio event=started pid=8541
+pocket.supervise: name=core event=started pid=8542
+2026-11-23T14:08:11.932945Z  INFO pocketd: pocketd starting version="0.1.0" protocol=1.3 pid=8542
+2026-11-23T14:08:11.933177Z  INFO pocketd::recovery: recovery: new session; starting fresh
+[W][15:08:11.946077] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:11.946246] mod.rt       | [     module-rt.c:  995 do_rtkit_setup()] RTKit does not give us MaxRealtimePriority, using 1
+[W][15:08:11.947103] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:11.947137] mod.rt       | [     module-rt.c: 1000 do_rtkit_setup()] RTKit does not give us MinNiceLevel, using 0
+[W][15:08:11.948250] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:11.948342] mod.rt       | [     module-rt.c: 1005 do_rtkit_setup()] RTKit does not give us RTTimeUSecMax, using -1
+2026-11-23T14:08:11.956081Z  INFO pocketd::apps: application catalog scanned apps=4 skipped=6
+2026-11-23T14:08:11.960426Z  INFO pocketd::service: state changed mode=handheld ready=true revision=2
+2026-11-23T14:08:11.960790Z  INFO pocketd::dock::netwatch: dock: watching network changes (rtnetlink)
+2026-11-23T14:08:11.960905Z  INFO pocketd: pocketd ready name="org.pocketos.Core1" path="/org/pocketos/Core1" unique=Some(":1.1") mode=handheld
+pocket.audio: event=started members=3 pipewire.sock=/run/user/10000/pipewire-0
+[W][15:08:12.049455] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:12.049607] mod.rt       | [     module-rt.c:  995 do_rtkit_setup()] RTKit does not give us MaxRealtimePriority, using 1
+[W][15:08:12.050756] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:12.050808] mod.rt       | [     module-rt.c: 1000 do_rtkit_setup()] RTKit does not give us MinNiceLevel, using 0
+[W][15:08:12.051634] mod.rt       | [     module-rt.c:  331 translate_error()] RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+[W][15:08:12.051700] mod.rt       | [     module-rt.c: 1005 do_rtkit_setup()] RTKit does not give us RTTimeUSecMax, using -1
+W 15:08:12.064547             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.064783             mod.rt ../src/modules/module-rt.c:995:do_rtkit_setup: RTKit does not give us MaxRealtimePriority, using 1
+W 15:08:12.067883             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.068001             mod.rt ../src/modules/module-rt.c:1000:do_rtkit_setup: RTKit does not give us MinNiceLevel, using 0
+W 15:08:12.069557             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.069812             mod.rt ../src/modules/module-rt.c:1005:do_rtkit_setup: RTKit does not give us RTTimeUSecMax, using -1
+W 15:08:12.352680             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.352811             mod.rt ../src/modules/module-rt.c:995:do_rtkit_setup: RTKit does not give us MaxRealtimePriority, using 1
+W 15:08:12.354486             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.354634             mod.rt ../src/modules/module-rt.c:1000:do_rtkit_setup: RTKit does not give us MinNiceLevel, using 0
+W 15:08:12.356375             mod.rt ../src/modules/module-rt.c:331:translate_error: RTKit error: org.freedesktop.DBus.Error.ServiceUnknown
+W 15:08:12.356485             mod.rt ../src/modules/module-rt.c:1005:do_rtkit_setup: RTKit does not give us RTTimeUSecMax, using -1
+Running compositor on wayland display 'wayland-0'
+pocket.session: event=osk.started supervisor=8588
+pocket.supervise: name=osk event=supervisor.started pid=8588 max=5 window=60s
+pocket.supervise: name=osk event=started pid=8590
+
+(phoc:8537): GnomeDesktop-WARNING **: 15:08:12.998: Failed to load '/usr/share/xml/iso-codes/iso_639.xml': Failed to open file “/usr/share/xml/iso-codes/iso_639.xml”: No such file or directory
+
+
+(phoc:8537): GnomeDesktop-WARNING **: 15:08:12.999: Failed to load '/usr/share/xml/iso-codes/iso_639_3.xml': Failed to open file “/usr/share/xml/iso-codes/iso_639_3.xml”: No such file or directory
+
+
+(phoc:8537): GnomeDesktop-WARNING **: 15:08:12.999: Failed to load '/usr/share/xml/iso-codes/iso_3166.xml': Failed to open file “/usr/share/xml/iso-codes/iso_3166.xml”: No such file or directory
+
+N 15:08:13.752246 wp-internal-comp-l ../lib/wp/private/internal-comp-loader.c:589:on_component_loaded: <WpCore:0xffffba70a870> optional component 'support.logind [module: libwireplumber-module-logind]' failed to load: Failed to locate module libwireplumber-module-logind
+N 15:08:13.752389 wp-internal-comp-l ../lib/wp/private/internal-comp-loader.c:641:wp_component_array_load_task_execute_step: <WpCore:0xffffba70a870> skipping component 'monitor.bluez.seat-monitoring [virtual]' because some of its dependencies were not loaded
+E 15:08:13.834281 spa.bluez5.modemma ../spa/plugins/bluez5/modemmanager.c:420:mm_get_managed_objects_reply: Failed to get a list of endpoints from ModemManager: org.freedesktop.DBus.Error.NameHasNoOwner
+N 15:08:13.984895 wp-internal-comp-l ../lib/wp/private/internal-comp-loader.c:641:wp_component_array_load_task_execute_step: <WpCore:0xffffba70a870> skipping component 'monitor.camera.seat-monitoring [virtual]' because some of its dependencies were not loaded
+
+(phoc:8537): phoc-cutouts-overlay-WARNING **: 15:08:14.043: No panel found for compatibles
+phoc-output-Message: 15:08:14.043: Output 'DSI-1' added ('(null)'/'(null)'/'(null)'), 67mm x 145mm
+pocket.supervise: name=shell event=supervisor.started pid=8611 max=5 window=60s
+pocket.supervise: name=shell event=started pid=8613
+dbus-daemon[8529]: [session uid=10000 pid=8529 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.9' (uid=10000 pid=8590 comm="squeekboard")
+dbus-daemon[8529]: [session uid=10000 pid=8529 pidfd=5] Successfully activated service 'org.a11y.Bus'
+[4:54:52.900535488] [8553]  INFO Camera camera_manager.cpp:340 libcamera v0.8.0
+
+** (squeekboard:8590): WARNING **: 15:08:14.471: No system layout present
+
+** (squeekboard:8590): WARNING **: 15:08:14.479: Could not register to session manager: Cannot invoke method; proxy is for the well-known name org.gnome.SessionManager without an owner, and proxy was constructed with the G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START flag
+
+dbus-daemon[8620]: Activating service name='org.a11y.atspi.Registry' requested by ':1.1' (uid=10000 pid=8590 comm="squeekboard")
+dbus-daemon[8620]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+[32m  INFO[0m: Launching config: "/home/nikita/pocket-os/shell/shell.qml"
+[32m  INFO[0m: Shell ID: "30858fec2cadcb20ee22d6a945f15ee5" Path ID "30858fec2cadcb20ee22d6a945f15ee5"
+dbus-daemon[8529]: [session uid=10000 pid=8529 pidfd=5] Activating service name='org.sigxcpu.Feedback' requested by ':1.7' (uid=10000 pid=8590 comm="squeekboard")
+[32m  INFO[0m: Saving logs to "/run/user/10000/quickshell/by-id/9n6qlkyot/log.qslog"
+dbus-daemon[8529]: [session uid=10000 pid=8529 pidfd=5] Successfully activated service 'org.sigxcpu.Feedback'
+Debug: Tried file "/home/nikita/.local/share/squeekboard/keyboards.yaml", but it's missing: No such file or directory (os error 2)
+Warning: Failed to load layout from Resource: : Missing resource, skipping
+Debug: Tried file "/home/nikita/.local/share/squeekboard/keyboards/us.yaml", but it's missing: No such file or directory (os error 2)
+Info: Loaded layout Resource: us
+Surprise: Panel has been configured, but no request is pending. Ignoring
+[32m  INFO[97m pocket.platform.brightness[0m: backlight backlight max 4095 now 2048
+[32m  INFO[0m: Configuration Loaded
+[32m  INFO[97m pocket.platform.osk[0m: keyboard service present
+[32m  INFO[97m pocket.shell.diag[0m: event=osk.visible visible=false
+[32m  INFO[97m pocket.platform.osk[0m: keyboard visible false
+[32m  INFO[97m pocket.shell.diag[0m: event=osk.visible visible=false
+[32m  INFO[97m pocket.platform.sensor[0m: orientation undefined
+[32m  INFO[97m pocket.core.client[0m: state read mode=handheld revision=2
+[32m  INFO[97m pocket.shell.diag[0m: event=core.mode mode=handheld revision=2
+[32m  INFO[97m pocket.core.client[0m: status Connected owner=:1.1
+[32m  INFO[97m pocket.shell.diag[0m: event=core.status status=connected owner=:1.1 connections=1 error=-
+[32m  INFO[97m pocket.platform.output[0m: output DSI-1 rotation 0 serial 1
+[32m  INFO[97m pocket.shell.diag[0m: event=output.rotation rotation=0
+[32m  INFO[97m pocket.platform.powerkey[0m: grabbed XF86PowerOff action 1
+[32m  INFO[97m pocket.shell.diag[0m: event=powerkey.grab active=true error=-
+[32m  INFO[97m pocket.platform.display[0m: output DSI-1 power on
+[33m  WARN[97m qt.qpa.services[0m: Failed to register with host portal QDBusError("org.freedesktop.DBus.Error.ServiceUnknown", "The name org.freedesktop.portal.Desktop was not provided by any .service files")
+[32m  INFO[97m pocket.core.dock[0m: state disconnected host=nikitapc 
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=disconnected host="nikitapc" error=- retry_ms=0 wanted=false
+[32m  INFO[97m pocket.shell.diag[0m: event=apps.catalog count=4
+[32m  INFO[97m pocket.core.apps[0m: catalog: 4 apps
+[32m  INFO[97m pocket.shell.diag[0m: event=shell.started runtime=Quickshell surface=home size=360x780 landscape=false
+[33m  WARN[97m qt.qpa.wayland.textinput[0m: virtual void QtWaylandClient::QWaylandTextInputv3::disableSurface(wl_surface*) Trying to disable 0xffff86b95c60 but 0x0 is focused
+[32m  INFO[97m pocket.core.dock[0m: actions: 0
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=-
+[32m  INFO[97m pocket.shell.diag[0m: event=audio.state available=true output="Built-in Audio Headphones (3.5 mm jack)" id=49 volume=0 muted=false

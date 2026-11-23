@@ -23,7 +23,10 @@ and how QML talks to it.
   instance exits with status **3**) → mark ready (emits `StateChanged`) → serve until
   SIGTERM/SIGINT/SIGHUP, loss of the name, or bus disconnect → release the name → exit 0.
 - State is in memory. A restarted core starts from the initial state; clients detect the
-  restart through the bus-name owner change and re-read the state.
+  restart through the bus-name owner change and re-read the state. *Amended in Stage 3.1
+  (#5):* within a graphical session the core restores the user's mode and Dock link
+  intent from a session-scoped file (`$XDG_RUNTIME_DIR/pocket-os/core-recovery.json`,
+  deleted with the session; ADR-0007 "Session recovery"). Revisions still restart at 1.
 - Logging: `tracing` to stderr (collected in the session log), level via `POCKETD_LOG`.
 - Build: cross-compiled on the host to a static `aarch64-unknown-linux-musl` binary with
   Rust's bundled `rust-lld` (`.cargo/config.toml`). No toolchain on the phone, ~1 min
@@ -123,6 +126,8 @@ on Qt patch upgrades (unlike Quickshell).
 - The bridge must be built on the device (needs target Qt headers). It uses only public
   Qt API.
 - Core state is lost on core restart (Stage 1 has nothing worth persisting; the mode
-  resets to `handheld`). Persistence is a later, explicit decision.
+  resets to `handheld`). Persistence is a later, explicit decision. *Stage 3.1:* only
+  session-scoped recovery of the mode and the Dock link intent exists; nothing survives
+  the graphical session, and there is still no persistent settings store.
 - New features add methods/keys under `Core1` (minor bump) or a new interface/object
   (e.g. `/org/pocketos/Core1/Settings`); incompatible changes require `Core2`.

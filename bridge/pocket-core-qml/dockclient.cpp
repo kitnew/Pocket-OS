@@ -25,6 +25,41 @@ QString dbusErrorText(const QDBusError &e)
 DockClient::DockClient(QObject *parent) : QObject(parent)
 {
     qDBusRegisterMetaType<QList<QVariantMap>>();
+    m_tick.setSingleShot(true);
+    m_tick.setTimerType(Qt::PreciseTimer);
+    connect(&m_tick, &QTimer::timeout, this, &DockClient::updateCountdown);
+}
+
+int DockClient::retryRemainingMs() const
+{
+    if (!retryScheduled())
+        return 0;
+    return int(qMax<qint64>(0, m_retryDeadline.remainingTime()));
+}
+
+void DockClient::setCountdownActive(bool active)
+{
+    if (active == m_countdownActive)
+        return;
+    m_countdownActive = active;
+    emit countdownActiveChanged();
+    updateCountdown();
+}
+
+// Recomputes the whole seconds left and, while someone is watching, wakes up again at the
+// next whole-second boundary of the deadline (one wakeup per second, none otherwise).
+void DockClient::updateCountdown()
+{
+    const int ms = retryRemainingMs();
+    const int secs = (ms + 999) / 1000;
+    if (secs != m_retrySeconds) {
+        m_retrySeconds = secs;
+        emit retrySecondsChanged();
+    }
+    if (m_countdownActive && ms > 0)
+        m_tick.start(ms % 1000 == 0 ? 1000 : ms % 1000 + 1);
+    else
+        m_tick.stop();
 }
 
 void DockClient::setCore(CoreClient *core)
@@ -69,7 +104,9 @@ void DockClient::coreStatusChanged()
             m_actions.clear();
             emit actionsChanged();
         }
+        m_retryDeadline = QDeadlineTimer(QDeadlineTimer::Forever);
         emit changed();
+        updateCountdown();
     }
 }
 
@@ -106,6 +143,7 @@ void DockClient::fetch()
         if (applyState(reply.value(), true)) {
             m_supported = true;
             emit changed();
+            updateCountdown();
             fetchActions();
         }
     });
@@ -144,6 +182,14 @@ bool DockClient::applyState(const QVariantMap &state, bool initial)
     m_revision = rev;
     const QString before = this->state();
     m_state = state;
+    // The time left was computed by Core when it produced this state; count from now.
+    // (Cores older than 1.3 only send whole seconds.)
+    qint64 ms = state.contains(QStringLiteral("retry_in_ms"))
+        ? state.value(QStringLiteral("retry_in_ms")).toLongLong()
+        : state.value(QStringLiteral("retry_in")).toLongLong() * 1000;
+    if (this->state() != QLatin1String("error"))
+        ms = 0;
+    m_retryDeadline = ms > 0 ? QDeadlineTimer(ms) : QDeadlineTimer(QDeadlineTimer::Forever);
     if (before != this->state())
         qCInfo(lcDock).noquote() << "state" << this->state() << "host=" + hostName()
                                  << (errorCode().isEmpty() ? QString() : "error=" + errorCode());
@@ -152,8 +198,10 @@ bool DockClient::applyState(const QVariantMap &state, bool initial)
 
 void DockClient::onStateChanged(const QVariantMap &state)
 {
-    if (m_supported && applyState(state, false))
+    if (m_supported && applyState(state, false)) {
         emit changed();
+        updateCountdown();
+    }
 }
 
 void DockClient::onActionsChanged()

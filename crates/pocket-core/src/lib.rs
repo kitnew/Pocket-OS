@@ -87,6 +87,17 @@ impl StateManager {
         }
     }
 
+    /// Like [`StateManager::new`], but starting in `mode`: used when the daemon restarts
+    /// within a graphical session and recovers the mode the user had chosen (the
+    /// daemon owns the recovery file; this crate stays free of I/O). Revisions still
+    /// start at 1, as for any new core process.
+    pub fn restored(mode: Mode) -> Self {
+        Self {
+            mode,
+            ..Self::new()
+        }
+    }
+
     pub fn mode(&self) -> Mode {
         self.mode
     }
@@ -150,6 +161,27 @@ mod tests {
         assert_eq!(s.revision, 1);
         assert_eq!(s.version, VERSION);
         assert_eq!(s.protocol, PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn restored_state_keeps_the_mode_only() {
+        let mut s = StateManager::restored(Mode::Dock);
+        let snap = s.snapshot();
+        assert_eq!(snap.mode, Mode::Dock);
+        assert!(!snap.ready);
+        assert_eq!(snap.revision, 1);
+        // Ready announces the restored mode without a ModeChanged (nothing changed).
+        let events = s.mark_ready();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            Event::StateChanged(Snapshot {
+                mode: Mode::Dock,
+                ready: true,
+                ..
+            })
+        ));
+        assert_eq!(s.apply(Command::RequestMode(Mode::Dock)), Ok(vec![]));
     }
 
     #[test]

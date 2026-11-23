@@ -1,0 +1,47 @@
+session: phoc=8537 core=15402 shell=15344
+== 1. Core -> UI signal path
+PASS  UI shows mode from StateChanged
+      screenshot /tmp/pocket-e2e/1-dock.png
+== 2. invalid command
+PASS  invalid mode rejected with org.pocketos.Core1.Error.InvalidMode
+PASS  state unchanged after invalid command
+== 3. Core stopped -> UI disconnected; Core started -> UI resyncs
+PASS  UI shows Disconnected
+      screenshot /tmp/pocket-e2e/3-core-stopped.png
+PASS  UI reconnects to the new core
+PASS  UI resynchronised to the new core (state read)
+PASS  new core restored the session's mode (dock)
+PASS  UI never flipped to handheld
+PASS  shell not restarted (15344)
+      screenshot /tmp/pocket-e2e/3-core-restarted.png
+== 4. Core crash (SIGABRT) -> supervisor restarts it -> UI resyncs
+PASS  supervisor saw the crash
+PASS  core restarted automatically (pid 15603)
+PASS  UI reconnected after crash
+PASS  UI read the restarted core's state
+PASS  restored mode: UI never flipped to handheld
+PASS  Phoc untouched
+== 5. shell crash -> Phoc and Core keep running -> shell restored with Core state
+PASS  supervisor saw the shell crash
+PASS  shell restarted (pid 15674)
+PASS  restarted shell connected to Core
+PASS  restarted shell shows Core's current mode (dock)
+PASS  Phoc untouched (8537)
+PASS  Core untouched (15603)
+      screenshot /tmp/pocket-e2e/5-shell-restored.png
+== 6. requested shell restart is not counted as a failure
+PASS  restart logged as requested
+PASS  shell restarted on request
+PASS  UI back with Core state
+== 7. crash loop -> supervisor gives up, session survives, manual recovery
+PASS  supervisor gave up after repeated crashes
+PASS  gave-up marker: gave up at uptime 17928 after 5 exits in 60s; last: signal=SEGV
+PASS  no further restarts after give-up
+PASS  diagnostic log kept (shell-gave-up.log)
+PASS  Phoc still running (8537)
+PASS  Core still running (15603)
+PASS  shell recovered with pocket-ctl start shell
+PASS  recovered shell shows Core state (dock)
+      screenshot /tmp/pocket-e2e/7-recovered.png
+
+e2e: 32 passed, 0 failed

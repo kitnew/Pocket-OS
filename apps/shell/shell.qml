@@ -84,6 +84,8 @@ ShellRoot {
                 dock: { docked: Shell.docked, supported: Shell.dock.supported, state: Shell.dock.state,
                         configured: Shell.dock.configured, host: Shell.dock.hostName, hostId: Shell.dock.hostId,
                         error: Shell.dock.errorCode, retryIn: Shell.dock.retryIn,
+                        retryMs: Shell.dock.retryRemainingMs(), retryShown: Shell.dock.retrySeconds,
+                        countdown: Shell.dock.countdownActive, wanted: Shell.dock.connectionWanted,
                         actions: Shell.dock.actions.map(a => ({ id: a.id, available: a.available })),
                         pending: Object.keys(Shell.dock.pendingActions), results: Shell.dockResults },
                 toasts: Shell.toasts.count

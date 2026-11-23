@@ -1,0 +1,21 @@
+# Stage 3.1 D3: media.play_pause against a real MPRIS player (2026-11-23, Fedora 44 / KDE Plasma)
+# Controlled player: KDE Elisa playing a generated silent WAV (nothing audible). The user's own
+# players were left alone: chromium (YouTube Music) was Paused and Firefox was Playing; the agent
+# targets the first *Playing* player in bus-name order, and org.mpris.MediaPlayer2.elisa sorts
+# before ...firefox..., so exactly one toggle was made and it could only hit Elisa.
+before
+  org.mpris.MediaPlayer2.chromium.instance7906 s "Paused"
+  org.mpris.MediaPlayer2.elisa s "Playing"
+  org.mpris.MediaPlayer2.firefox.instance_1_134 s "Playing"
+phone: dock connected ['desktop.notify:on', 'media.play_pause:on']
+phone: pocket-ctl ui dockAction media.play_pause -> ok
+phone: result {'ok': True, 'code': '', 'text': 'Toggled elisa', 'time': '14:59:20'}
+after
+  org.mpris.MediaPlayer2.chromium.instance7906 s "Paused"
+  org.mpris.MediaPlayer2.elisa s "Paused"
+  org.mpris.MediaPlayer2.firefox.instance_1_134 s "Playing"
+agent (journalctl --user -u pocket-desktop-agent):
+2026-11-23T13:59:08.109293Z  INFO pocket_desktop_agent::actions::media: media player changed player=org.mpris.MediaPlayer2.elisa present=true
+2026-11-23T13:59:22.567801Z  INFO pocket_desktop_agent::actions::media: media play/pause player=elisa
+2026-11-23T13:59:22.567831Z  INFO pocket_desktop_agent::server: action ok phone=lavender session=4 id=1 action=media.play_pause ms=1
+Elisa was then closed; no second toggle was sent (it would have targeted Firefox).

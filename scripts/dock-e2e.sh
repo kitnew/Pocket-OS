@@ -1,12 +1,16 @@
 #!/bin/bash
-# Stage 3 Dock end-to-end test, driven from the development computer: the real phone
+# Stage 3 / 3.1 Dock end-to-end test, driven from the development computer: the real phone
 # session (scripts/session.sh start) and the real desktop agent user service on this
 # computer (scripts/dock-pair.sh). It stops, restarts and freezes the agent and restarts
 # the phone's shell and core, and checks the phone's state after each step.
 #
-#   scripts/dock-e2e.sh        ~2.5 min. Evidence: .cache/e2e/<timestamp>/dock-e2e.txt + PNGs
+#   scripts/dock-e2e.sh        ~5 min. Evidence: .cache/e2e/<timestamp>/dock-e2e.txt + PNGs
 #
-# The notification action really shows a notification on this desktop (twice).
+# Stage 3.1 (§10–12): mode and link-intent recovery across core crashes/restarts, Disconnect
+# that sticks, live countdown, and a full session restart at the end (needs the sudoers
+# rule for `rc-service pocket-session`; the session comes back in handheld).
+#
+# The notification action really shows a notification on this desktop (several times).
 # media.play_pause is NOT invoked (it would toggle the user's media player).
 set -u
 HOST="${POCKET_DEVICE:-lavender}"
@@ -40,6 +44,15 @@ wait_for() {
 }
 shot() { ssh "$HOST" ". \$XDG_RUNTIME_DIR/pocket-os/env; grim /tmp/$1.png" && scp -q "$HOST:/tmp/$1.png" "$out/" && echo "      screenshot $out/$1.png"; }
 agent_log_since() { journalctl --user -u "$unit" --since "$1" --no-pager -o cat; }
+# Core's own view of the pending retry (ms), straight from org.pocketos.Core1.Dock.
+core_retry_ms() { ctl dock GetState | tr -s ' \n' ' ' | sed -n 's/.*"retry_in_ms" variant uint32 \([0-9]*\).*/\1/p'; }
+# Session log positions: log_mark, then log_since MARK / no_log DESC MARK REGEX.
+log_mark() { ssh "$HOST" 'wc -l < ~/.local/state/pocket-os/session.log'; }
+log_since() { ssh "$HOST" "tail -n +\$(($1 + 1)) ~/.local/state/pocket-os/session.log"; }
+no_log() {
+	m="$(log_since "$2" | grep -E "$3" | head -3)"
+	if [ -z "$m" ]; then ok "$1"; else ko "$1 [$m]"; fi
+}
 
 echo "== 0. preconditions"
 systemctl --user is-active --quiet "$unit" && ok "agent service active" || ko "agent service active"
@@ -134,18 +147,88 @@ wait_for "shell comes back docked, landscape, connected, actions listed" 's["doc
 [ "$(ctl ui dockAction desktop.notify)" = ok ] && ok "action after shell restart dispatched" || ko "action after shell restart"
 wait_for "…and confirmed" 's["dock"]["results"].get("desktop.notify",{}).get("ok")==True' 10
 
-echo "== 10. core restart while docked (in-memory mode; issue #5)"
+echo "== 10. core restart while docked and connected (Stage 3.1, issue #5)"
+ctl ui rotation portrait >/dev/null
+mark="$(log_mark)"; amark="$(date '+%Y-%m-%d %H:%M:%S')"
+t0=$(date +%s.%N)
 ctl restart core
-sleep 4
-wait_for "new core: handheld, portrait restored, link disconnected" 's["core"]=="Connected" and s["mode"]=="handheld" and s["rotation"]==0 and s["dock"]["state"]=="disconnected"' 15
-ctl ui mode dock >/dev/null
-wait_for "Dock Mode again reconnects" 's["dock"]["state"]=="connected"' 10
+wait_for "new core: still dock, landscape, link restored by Core" 's["core"]=="Connected" and s["mode"]=="dock" and s["rotation"] in (90,270) and s["dock"]["state"]=="connected" and s["dock"]["wanted"]' 20
+echo "      core restart → connected: $(echo "$(date +%s.%N) - $t0" | bc) s (includes the 1 s polling of this script)"
+check "rotation preference untouched (portrait)" 's["rotationMode"]=="portrait"'
+check "actions re-advertised" 'any(a["id"]=="desktop.notify" and a["available"] for a in s["dock"]["actions"])'
+no_log "no flicker: the shell never left Dock Mode, never rotated to portrait, never went home" "$mark" 'event=dock.mode docked=false|event=output.rotation rotation=0$|event=nav.home'
+no_log "the shell sent no Connect of its own" "$mark" 'event=dock.connect|event=dock.autoconnect'
+[ "$(log_since "$mark" | grep -c 'dock Connect why="restoring the link')" = 1 ] && ok "exactly one restore Connect in the new core" || ko "exactly one restore Connect"
+[ "$(agent_log_since "$amark" | grep -c 'phone connected')" = 1 ] && ok "agent: one new authenticated session" || ko "agent: one new session [$(agent_log_since "$amark" | grep -c 'phone connected')]"
+[ "$(ctl ui dockAction desktop.notify)" = ok ] && ok "action after core restart dispatched" || ko "action after core restart"
+wait_for "…and confirmed by the computer" 's["dock"]["results"].get("desktop.notify",{}).get("ok")==True and not s["dock"]["pending"]' 10
+shot dock-after-core-restart
 
-echo "== 11. back to handheld"
+echo "== 10b. core crash (SIGABRT) while docked, then repeated restarts"
+amark="$(date '+%Y-%m-%d %H:%M:%S')"
+ctl kill core ABRT >/dev/null
+wait_for "after a crash: dock, landscape, reconnected" 's["core"]=="Connected" and s["mode"]=="dock" and s["rotation"] in (90,270) and s["dock"]["state"]=="connected"' 20
+for i in 1 2 3; do
+	ctl restart core
+	wait_for "restart $i: dock and connected" 's["core"]=="Connected" and s["mode"]=="dock" and s["dock"]["state"]=="connected"' 20
+done
+sleep 1
+c="$(agent_log_since "$amark" | grep -c 'phone connected')"; d="$(agent_log_since "$amark" | grep -c 'phone disconnected')"; r="$(agent_log_since "$amark" | grep -c 'replacing previous session')"
+[ "$c" = 4 ] && [ "$d" = 4 ] && [ "$r" = 0 ] && ok "agent: 4 sessions, each old one closed by its core (connected $c, disconnected $d, replaced $r)" ||
+	ko "agent sessions: connected $c, disconnected $d, replaced $r (want 4/4/0; the first disconnect is the crash)"
+ssh "$HOST" 'ls $XDG_RUNTIME_DIR/pocket-os/ | grep -c core-recovery' | grep -qx 1 && ok "one recovery file, no leftovers" || ko "recovery file leftovers"
+
+echo "== 10c. manual Disconnect survives core and shell restarts"
+ctl ui dock disconnect >/dev/null
+wait_for "disconnected, intent cleared" 's["dock"]["state"]=="disconnected" and not s["dock"]["wanted"]' 5
+ctl kill core ABRT >/dev/null
+wait_for "crashed core back in dock" 's["core"]=="Connected" and s["mode"]=="dock"' 20
+sleep 5
+check "still disconnected 5 s after the core restart" 's["dock"]["state"]=="disconnected" and not s["dock"]["wanted"]'
+ctl restart shell
+sleep 6
+wait_for "shell back docked and landscape" 's["dock"]["docked"] and s["rotation"] in (90,270)' 15
+sleep 4
+check "still disconnected after the shell restart" 's["dock"]["state"]=="disconnected" and not s["dock"]["wanted"]'
+ctl ui dock connect >/dev/null
+wait_for "explicit Connect works" 's["dock"]["state"]=="connected" and s["dock"]["wanted"]' 10
+
+echo "== 10d. computer away: Core and shell restarts during backoff, live countdown"
+systemctl --user stop "$unit"
+ctl ui display true >/dev/null
+wait_for "backoff reached the 8 s wait" 's["dock"]["state"]=="error" and s["dock"]["retryMs"]>5000' 25
+a="$(q 's["dock"]["retryMs"]')"; sleep 2; b="$(q 's["dock"]["retryMs"]')"
+[ $((a - b)) -ge 1500 ] && [ $((a - b)) -le 2700 ] && ok "countdown decreases with the clock ($a → $b ms in ~2 s)" || ko "countdown $a → $b ms"
+check "shown seconds match the deadline (page visible, screen on)" 's["dock"]["countdown"] and abs(s["dock"]["retryShown"] - (s["dock"]["retryMs"]+999)//1000) <= 1'
+shot dock-countdown
+ctl restart core
+wait_for "core restart during backoff: dock, error, retry scheduled" 's["core"]=="Connected" and s["mode"]=="dock" and s["dock"]["state"]=="error" and s["dock"]["retryMs"]>0 and s["dock"]["wanted"]' 20
+ctl restart shell
+sleep 6
+wait_for "shell restart during backoff: countdown running" 's["dock"]["state"]=="error" and s["dock"]["retryMs"]>1000' 15
+b="$(q 's["dock"]["retryMs"]')"; c="$(core_retry_ms)"
+[ $((b - c)) -ge -100 ] && [ $((b - c)) -le 600 ] && ok "restarted shell counts down to Core's deadline (shell $b ms, Core $c ms right after)" ||
+	ko "restarted shell: shell $b ms vs Core $c ms"
+systemctl --user start "$unit"
+t0=$(date +%s)
+wait_for "agent back: reconnects on the next scheduled attempt" 's["dock"]["state"]=="connected"' 70
+echo "      agent start → connected: $(($(date +%s) - t0)) s (backoff, no network event)"
+
+echo "== 11. handheld → core restart → handheld"
 ctl ui mode handheld >/dev/null
 wait_for "handheld, portrait" 's["mode"]=="handheld" and s["rotation"]==0' 10
+ctl restart core
+wait_for "new core: handheld, portrait, wanted link restored" 's["core"]=="Connected" and s["mode"]=="handheld" and s["rotation"]==0 and s["dock"]["state"]=="connected"' 20
 ctl ui dock disconnect >/dev/null
 wait_for "portrait, disconnected" 's["rotation"]==0 and s["dock"]["state"]=="disconnected"' 10
+
+echo "== 12. a new graphical session starts in handheld"
+ctl ui mode dock >/dev/null
+wait_for "dock again (auto-connect on entry)" 's["mode"]=="dock" and s["dock"]["state"]=="connected"' 10
+ssh "$HOST" 'sudo -n rc-service pocket-session stop >/dev/null 2>&1; ls $XDG_RUNTIME_DIR/pocket-os 2>/dev/null | wc -l' | grep -qx 0 &&
+	ok "session stop removes the session runtime directory (recovery file gone)" || ko "runtime directory left after session stop"
+ssh "$HOST" 'sudo -n rc-service pocket-session start >/dev/null 2>&1'
+wait_for "new session: handheld, portrait, disconnected, nothing wanted" 's["core"]=="Connected" and s["mode"]=="handheld" and s["rotation"]==0 and s["dock"]["state"]=="disconnected" and not s["dock"]["wanted"]' 60
 ctl status | head -5
 
 scp -q "$HOST:.local/state/pocket-os/session.log" "$out/" 2>/dev/null || true

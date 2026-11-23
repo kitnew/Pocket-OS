@@ -32,6 +32,10 @@ class TstCoreClient : public QObject {
     Q_OBJECT
 
     QProcess core;
+    // XDG_RUNTIME_DIR of every core started here: never the real session's (this test
+    // runs on the device next to a live session). Recovery is active only while
+    // <runtime>/pocket-os exists, as in a Pocket session.
+    QTemporaryDir runtime;
 
     // Runs a CLI to completion and returns its stdout.
     static QString run(const QString &program, const QStringList &args, const QProcessEnvironment &env)
@@ -51,8 +55,9 @@ class TstCoreClient : public QObject {
         return {};
     }
 
-    void startCore(const QProcessEnvironment &env = QProcessEnvironment::systemEnvironment())
+    void startCore(QProcessEnvironment env = QProcessEnvironment::systemEnvironment())
     {
+        env.insert(QStringLiteral("XDG_RUNTIME_DIR"), runtime.path());
         core.setProcessEnvironment(env);
         core.setProgram(qEnvironmentVariable("POCKETD_BIN", QStringLiteral("pocketd")));
         core.setProcessChannelMode(QProcess::ForwardedChannels);
@@ -77,7 +82,7 @@ private slots:
         startCore();
         QTRY_COMPARE(client.status(), CoreClient::Connected);
         QCOMPARE(client.mode(), QStringLiteral("handheld"));
-        QCOMPARE(client.protocol(), QStringLiteral("1.2"));
+        QCOMPARE(client.protocol(), QStringLiteral("1.3"));
         QVERIFY(client.ready());
         QCOMPARE(client.connections(), 1);
         const QString firstOwner = client.owner();
@@ -301,17 +306,79 @@ private slots:
         QVERIFY(agent.waitForStarted());
         QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("connected"), 10000);
 
-        // Core restart: the client resynchronises (the new core starts disconnected).
+        // Core restart outside a session: the client resynchronises (the new core starts
+        // disconnected; there is no session recovery).
         core.terminate();
         QVERIFY(core.waitForFinished());
         QTRY_VERIFY(!dock.supported());
         startCore(env);
         QTRY_VERIFY(dock.supported());
         QCOMPARE(dock.state(), QStringLiteral("disconnected"));
+        QVERIFY(!dock.connectionWanted());
         dock.connectHost();
         QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("connected"), 10000);
+        QVERIFY(dock.connectionWanted());
+
+        // Inside a session (issue #5): the wanted link comes back after a core restart
+        // as a new session, with the actions advertised again.
+        // (The session creates <runtime>/pocket-os before the core starts.)
+        QVERIFY(QDir(runtime.path()).mkpath(QStringLiteral("pocket-os")));
+        core.terminate();
+        QVERIFY(core.waitForFinished());
+        QTRY_VERIFY(!dock.supported());
+        startCore(env);
+        QTRY_VERIFY(dock.supported());
+        QCOMPARE(dock.state(), QStringLiteral("disconnected")); // a new session: fresh
+        dock.connectHost(); // recorded in the recovery file
+        QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("connected"), 10000);
+        QVERIFY(QFile::exists(runtime.filePath(QStringLiteral("pocket-os/core-recovery.json"))));
+        core.kill(); // a crash
+        QVERIFY(core.waitForFinished());
+        QTRY_VERIFY(!dock.supported());
+        QVERIFY(dock.actions().isEmpty());
+        startCore(env);
+        QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("connected"), 10000);
+        QVERIFY(dock.connectionWanted());
+        QTRY_VERIFY(!dock.actions().isEmpty());
+
+        // Issue #7: a live countdown to Core's deadline, only while it is watched.
+        agent.kill();
+        QVERIFY(agent.waitForFinished());
+        QTRY_VERIFY_WITH_TIMEOUT(dock.retryScheduled(), 5000);
+        QCOMPARE(dock.state(), QStringLiteral("error"));
+        // Set from each state; it ticks between states only while watched.
+        QVERIFY(dock.retrySeconds() >= 1 && dock.retrySeconds() <= 2);
+        dock.setCountdownActive(true);
+        const int first = dock.retrySeconds();
+        QVERIFY2(first >= 1 && first <= 2, qPrintable(QString::number(first)));
+        QVERIFY(dock.retryRemainingMs() <= 2000);
+        QSignalSpy ticks(&dock, &DockClient::retrySecondsChanged);
+        // It reaches 0 and the attempt (connecting) ends the countdown; the next failure
+        // schedules a 4 s wait.
+        QTRY_VERIFY_WITH_TIMEOUT(dock.retrySeconds() >= 3, 6000);
+        QVERIFY(ticks.count() >= 2);
+        const int ms = dock.retryRemainingMs();
+        QTest::qWait(1100);
+        QVERIFY2(ms - dock.retryRemainingMs() >= 1000 && ms - dock.retryRemainingMs() <= 1300,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(ms).arg(dock.retryRemainingMs())));
+        QVERIFY(dock.retrySeconds() >= 1);
+        // Disconnect: no retry, countdown gone, and it is not undone by a core restart.
         dock.disconnectHost();
         QTRY_COMPARE(dock.state(), QStringLiteral("disconnected"));
+        QVERIFY(!dock.retryScheduled());
+        QCOMPARE(dock.retrySeconds(), 0);
+        QVERIFY(!dock.connectionWanted());
+        agent.start(agentBin, {"run"});
+        QVERIFY(agent.waitForStarted());
+        core.terminate();
+        QVERIFY(core.waitForFinished());
+        QTRY_VERIFY(!dock.supported());
+        startCore(env);
+        QTRY_VERIFY(dock.supported());
+        QTest::qWait(2500);
+        QCOMPARE(dock.state(), QStringLiteral("disconnected"));
+        QVERIFY(!dock.connectionWanted());
+        dock.setCountdownActive(false);
 
         core.terminate();
         QVERIFY(core.waitForFinished());

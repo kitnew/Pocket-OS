@@ -102,14 +102,15 @@ an app activates its existing window (matched by app_id = desktop ID or
 
 | Owner | State |
 |---|---|
-| Pocket Core | mode (`handheld`/`dock`), application catalog, launches, Dock link state (transient) and trusted-host config (`~/.config/pocket-os/dock`) |
+| Pocket Core | mode (`handheld`/`dock`), application catalog, launches, Dock link state (transient), Dock connection intent and policy, trusted-host config (`~/.config/pocket-os/dock`), session recovery of mode + intent (`$XDG_RUNTIME_DIR/pocket-os/core-recovery.json`) |
 | Desktop agent | which desktop actions exist and whether they are available |
 | Compositor | windows, activation, output power, transform |
 | System services | battery, network, Bluetooth, backlight, accelerometer, OSK visibility, audio devices/volume/mute (PipeWire/WirePlumber) |
 | Shell (UI) | home visibility/page, open panel, rotation mode (preference; Dock Mode forces landscape without changing it), toasts, last Dock action results |
 
 Nothing owned by the system or the compositor is mirrored into Core. UI state is
-transient (reset by a shell restart).
+transient (reset by a shell restart). Core's mode and Dock intent survive a core restart
+within the graphical session and are gone with it (ADR-0007, Stage 3.1).
 
 ## UI/Core separation and boundaries
 
@@ -128,7 +129,8 @@ Contract summary (ADR-0002): `org.pocketos.Core1` (`GetVersion`, `GetState`, `Ge
 on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
 `AppExited`) and, since 1.2, `org.pocketos.Core1.Dock` on `/org/pocketos/Core1/Dock`
 (`GetState`, `ListActions`, `Connect`, `Disconnect`, `Execute`, `StateChanged`,
-`ActionsChanged`, `ActionFinished`; ADR-0007). Errors:
+`ActionsChanged`, `ActionFinished`; ADR-0007; 1.3 adds the state keys `retry_in_ms` and
+`connection_wanted`). Errors:
 `org.pocketos.Core1.Error.{InvalidMode,NotReady,UnknownApp,LaunchFailed,NotConfigured,NotConnected,UnknownAction,ActionUnavailable,InvalidArgument}`.
 
 ## Display, power key, rotation, security
@@ -138,6 +140,10 @@ on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
   `HandlePowerKey=ignore`, so a press never powers the phone off.
 - Rotation: Portrait / Landscape / Auto (iio-sensor-proxy) → wlr-output-management
   transform. Phoc remaps touch.
+- **Local callers are not authorised.** Every process of the session user (all apps
+  Core launches, SSH logins) can call every Core method, including `Dock.Execute`.
+  Session D-Bus and Phoc's Wayland globals give no isolation between the shell and apps.
+  Threat model and plan: [#8](https://github.com/kitnew/Pocket-OS/issues/8).
 - **There is no lock screen.** Phoc 0.59 (and Phoc `main`) lacks `ext-session-lock-v1`.
   Phosh's own lock is an overlay surface without a compositor guarantee. Display-off is
   power management, not security. Strategy and follow-up work: ADR-0006.
@@ -148,6 +154,10 @@ on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
   60 s (`pocket-ctl start <name>` resumes).
 - The shell survives Core loss: the catalog stays visible (marked stale), launching
   reports "Pocket Core is not connected", and everything resynchronises on a new owner.
+  The new core restores the session's mode and reconnects the Dock link if it was wanted,
+  so the UI does not leave Dock Mode.
+- Dock link: transient failures back off 2 → 60 s. rtnetlink hints (cable back) pull a
+  pending retry forward. Failures that need the user are not retried.
 - Launch failures (unknown app, spawn error, early non-zero exit, no window within 20 s)
   become toasts. Diagnostics are `pocket.shell.diag: event=…` lines in `session.log`.
 
@@ -162,5 +172,6 @@ on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
 - New desktop action: one `Action` type in `crates/pocket-desktop-agent/src/actions/`
   plus one `register` call. The phone shows it with no change (`development/dock.md`).
 
-There is no persistence layer (beyond the Dock trusted-host files) and no plugin loading.
+There is no persistence layer (beyond the Dock trusted-host files and the session-scoped
+recovery file) and no plugin loading.
 On the phone there is no second daemon. Each would need an ADR.

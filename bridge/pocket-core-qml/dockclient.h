@@ -7,13 +7,18 @@
 // Nothing is guessed locally:
 //  - `state`, `hostName`, ... change only through GetState/StateChanged (revision-checked);
 //  - execute() reports "accepted" (pendingActions) when Core accepted the request, and
-//    actionFinished(ok=true) only when Core relays the computer's confirmation.
+//    actionFinished(ok=true) only when Core relays the computer's confirmation;
+//  - the retry countdown follows Core's deadline: Core reports the time left when it
+//    produces the state (retry_in_ms), and this client counts down from the moment it
+//    received it with a monotonic QDeadlineTimer. It never computes a backoff itself.
 #pragma once
 
+#include <QDeadlineTimer>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
@@ -35,7 +40,16 @@ class DockClient : public QObject {
     Q_PROPERTY(QString agent READ agent NOTIFY changed)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY changed)
+    // Seconds until the next automatic attempt as reported in the last state (static).
     Q_PROPERTY(int retryIn READ retryIn NOTIFY changed)
+    // An automatic attempt is scheduled (state "error" with a deadline).
+    Q_PROPERTY(bool retryScheduled READ retryScheduled NOTIFY changed)
+    // Live countdown to that attempt, in whole seconds (rounded up, never negative). It
+    // updates once per second only while countdownActive is true (the UI showing it).
+    Q_PROPERTY(int retrySeconds READ retrySeconds NOTIFY retrySecondsChanged)
+    Q_PROPERTY(bool countdownActive READ countdownActive WRITE setCountdownActive NOTIFY countdownActiveChanged)
+    // The user wants the link (Core's connection intent, protocol >= 1.3).
+    Q_PROPERTY(bool connectionWanted READ connectionWanted NOTIFY changed)
     // [{id, label, category, available, reason}], in the agent's order.
     Q_PROPERTY(QVariantList actions READ actions NOTIFY actionsChanged)
     // action id -> request id, while Core has accepted a request and the computer has
@@ -57,6 +71,13 @@ public:
     QString errorCode() const { return m_state.value(QStringLiteral("error_code")).toString(); }
     QString errorText() const { return m_state.value(QStringLiteral("error")).toString(); }
     int retryIn() const { return m_state.value(QStringLiteral("retry_in")).toInt(); }
+    bool retryScheduled() const { return m_supported && !m_retryDeadline.isForever(); }
+    int retrySeconds() const { return m_retrySeconds; }
+    bool countdownActive() const { return m_countdownActive; }
+    void setCountdownActive(bool active);
+    bool connectionWanted() const { return m_state.value(QStringLiteral("connection_wanted")).toBool(); }
+    // Milliseconds left until the scheduled attempt (0 when none or due).
+    Q_INVOKABLE int retryRemainingMs() const;
     QVariantList actions() const { return m_actions; }
     QVariantMap pendingActions() const { return m_pending; }
 
@@ -71,6 +92,8 @@ signals:
     void changed();
     void actionsChanged();
     void pendingChanged();
+    void retrySecondsChanged();
+    void countdownActiveChanged();
     void requestFailed(const QString &op, const QString &error);
     void actionFinished(qulonglong request, const QString &action, bool ok, const QString &code,
                         const QString &message, const QString &data);
@@ -89,6 +112,7 @@ private:
     bool applyState(const QVariantMap &state, bool initial);
     void call(const QString &method, const QString &op);
     void clearPending(const QString &code, const QString &message);
+    void updateCountdown();
 
     QPointer<CoreClient> m_core;
     QString m_subscribedBus;
@@ -99,4 +123,8 @@ private:
     QVariantList m_actions;
     QVariantMap m_pending;             // action -> request
     QSet<qulonglong> m_finishedEarly;  // ActionFinished seen before the Execute reply
+    QDeadlineTimer m_retryDeadline{QDeadlineTimer::Forever}; // forever = none scheduled
+    int m_retrySeconds = 0;
+    bool m_countdownActive = false;
+    QTimer m_tick; // single shot, armed for the next whole second while counting down
 };

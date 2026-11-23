@@ -14,7 +14,18 @@
 //! Keepalive: a `ping` after [`PING_INTERVAL`] without sending anything; no answer
 //! within [`PONG_TIMEOUT`] ends the session. Each accepted request gets exactly one
 //! `ActionFinished`: the agent's result, or `timeout` / `connection_lost` /
-//! `not_connected` from here. No polling and no retries faster than 2 s.
+//! `not_connected` from here. No polling.
+//!
+//! Network hints (issue #7, [`super::netwatch`]): while a retry is pending, a network
+//! change (carrier up, new IPv4 address or route) pulls the attempt forward to
+//! [`NET_SETTLE`] from now and restarts the backoff at 2 s, so a re-plugged cable does not
+//! wait out a 60 s timer. Bounds: automatic attempts start at least [`MIN_GAP`] apart, a
+//! hint takes effect at most once per [`NET_COOLDOWN`], hints are ignored unless the
+//! user wants the link and the failure is transient, and only when the kernel has a
+//! route to the configured address. Manual Connect ("Retry now") is not rate limited.
+//!
+//! Intent: `Connect` sets `connection_wanted`, `Disconnect` clears it; both are saved
+//! for session recovery ([`crate::recovery`]).
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -25,16 +36,25 @@ use pocket_dock_protocol::{HANDSHAKE_TIMEOUT, PING_INTERVAL, PONG_TIMEOUT, PROTO
 use pocket_ipc::DockState;
 use serde_json::Value;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep_until};
 use tracing::{debug, info, warn};
 use zbus::object_server::SignalEmitter;
 
 use super::config::LinkConfig;
 use super::{Cmd, DockService, SharedState, lock};
+use crate::recovery;
 
 /// Time the computer has to confirm an action.
 pub const ACTION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Automatic attempts never start closer together than this.
+pub const MIN_GAP: Duration = Duration::from_secs(2);
+/// Delay between a network hint and the attempt it triggers (lets a burst of changes,
+/// and the computer's side of a re-plugged USB link, settle).
+pub const NET_SETTLE: Duration = Duration::from_secs(1);
+/// A network hint shortens the wait at most once per this interval.
+pub const NET_COOLDOWN: Duration = Duration::from_secs(10);
 
 /// Phone-side failure codes (in addition to the agent's [`error_code`]s).
 pub mod code {
@@ -113,6 +133,10 @@ pub struct Link {
     cmds: mpsc::UnboundedReceiver<Cmd>,
     cfg: Option<LinkConfig>,
     device_name: String,
+    recovery: recovery::Handle,
+    net: Option<watch::Receiver<u64>>,
+    last_attempt: Option<Instant>,
+    last_net_retry: Option<Instant>,
 }
 
 impl Link {
@@ -120,6 +144,8 @@ impl Link {
         conn: zbus::Connection,
         shared: SharedState,
         cmds: mpsc::UnboundedReceiver<Cmd>,
+        recovery: recovery::Handle,
+        net: watch::Receiver<u64>,
     ) -> Self {
         let device_name = std::fs::read_to_string("/etc/hostname")
             .map(|s| s.trim().to_owned())
@@ -130,6 +156,10 @@ impl Link {
             cmds,
             cfg: None,
             device_name,
+            recovery,
+            net: Some(net),
+            last_attempt: None,
+            last_net_retry: None,
         }
     }
 
@@ -142,6 +172,7 @@ impl Link {
                     None => Next::Exit,
                     Some(Cmd::Connect(cfg)) => {
                         self.cfg = Some(*cfg);
+                        self.set_wanted(true);
                         Next::Attempt(0)
                     }
                     Some(Cmd::Disconnect) => {
@@ -157,11 +188,18 @@ impl Link {
                 },
                 Next::Wait(n, at) => tokio::select! {
                     () = sleep_until(at) => Next::Attempt(n),
+                    () = net_changed(&mut self.net) => {
+                        match self.network_hint(at).await {
+                            Some(sooner) => Next::Wait(0, sooner),
+                            None => Next::Wait(n, at),
+                        }
+                    }
                     c = self.cmds.recv() => match c {
                         None => Next::Exit,
                         Some(Cmd::Connect(cfg)) => {
                             info!("dock: Connect while waiting; retrying now");
                             self.cfg = Some(*cfg);
+                            self.set_wanted(true);
                             Next::Attempt(0)
                         }
                         Some(Cmd::Disconnect) => {
@@ -184,10 +222,11 @@ impl Link {
             return Next::Idle;
         };
         info!(host = %cfg.host.name, address = %cfg.host.address, attempt = n, "dock: connecting");
+        self.last_attempt = Some(Instant::now());
         self.update(|s| {
             s.set_host(&cfg.host);
             s.state = DockState::Connecting;
-            s.retry_in = 0;
+            s.retry_at = None;
         })
         .await;
         let device_name = self.device_name.clone();
@@ -198,7 +237,7 @@ impl Link {
                 r = &mut fut => break r,
                 c = self.cmds.recv() => match c {
                     None => return Next::Exit,
-                    Some(Cmd::Connect(c)) => self.cfg = Some(*c), // used by the next attempt
+                    Some(Cmd::Connect(c)) => self.cfg = Some(*c), // used by the next attempt; already wanted
                     Some(Cmd::Disconnect) => {
                         self.set_disconnected().await;
                         return Next::Idle;
@@ -224,18 +263,60 @@ impl Link {
     async fn fail(&mut self, f: Failure, n: u32) -> Next {
         let delay = f.retry.then(|| retry_delay(n));
         warn!(code = %f.code, error = %f.message, retry_in = ?delay, "dock: link failed");
+        let now = Instant::now();
+        // Never closer than MIN_GAP to the previous attempt's start (a session that ends
+        // right after it began must not turn into a fast loop).
+        let at = delay.map(|d| (now + d).max(self.last_attempt.map_or(now, |t| t + MIN_GAP)));
         self.update(|s| {
             s.state = DockState::Error;
             s.error_code = f.code.clone();
             s.error = f.message.clone();
             s.agent.clear();
-            s.retry_in = delay.map_or(0, |d| d.as_secs() as u32);
+            s.retry_at = at;
         })
         .await;
-        match delay {
-            Some(d) => Next::Wait(n + 1, Instant::now() + d),
+        // Only changes from now on count as hints for this wait.
+        if let Some(net) = &mut self.net {
+            net.borrow_and_update();
+        }
+        match at {
+            Some(at) => Next::Wait(n + 1, at),
             None => Next::Idle,
         }
+    }
+
+    /// A network change while a retry is pending: returns the earlier deadline, if the
+    /// hint is worth acting on (see the module documentation for the bounds).
+    async fn network_hint(&mut self, at: Instant) -> Option<Instant> {
+        let now = Instant::now();
+        if self.last_net_retry.is_some_and(|t| now < t + NET_COOLDOWN) {
+            debug!("dock: network changed; hint ignored (cooldown)");
+            return None;
+        }
+        let addr = self.cfg.as_ref()?.host.address;
+        if let Err(e) = route_exists(addr) {
+            debug!(%addr, error = %e, "dock: network changed; no route to the computer yet");
+            return None;
+        }
+        let sooner = (now + NET_SETTLE).max(self.last_attempt.map_or(now, |t| t + MIN_GAP));
+        if sooner >= at {
+            return None;
+        }
+        self.last_net_retry = Some(now);
+        info!(
+            %addr,
+            was_in_ms = at.saturating_duration_since(now).as_millis() as u64,
+            now_in_ms = sooner.saturating_duration_since(now).as_millis() as u64,
+            "dock: network changed; retrying sooner"
+        );
+        self.update(|s| s.retry_at = Some(sooner)).await;
+        Some(sooner)
+    }
+
+    /// Records the user's intent (shared state and the session recovery file).
+    fn set_wanted(&self, wanted: bool) {
+        lock(&self.shared).wanted = wanted;
+        self.recovery.set_dock_wanted(wanted);
     }
 
     async fn session(&mut self, s: Session) -> End {
@@ -256,7 +337,7 @@ impl Link {
             }
             st.error_code.clear();
             st.error.clear();
-            st.retry_in = 0;
+            st.retry_at = None;
             st.actions = actions;
         })
         .await;
@@ -411,13 +492,15 @@ impl Link {
         }
     }
 
+    /// Handles `Disconnect` (its only caller): the user no longer wants the link.
     async fn set_disconnected(&self) {
         info!("dock: disconnected");
+        self.set_wanted(false);
         self.update(|s| {
             s.state = DockState::Disconnected;
             s.error_code.clear();
             s.error.clear();
-            s.retry_in = 0;
+            s.retry_at = None;
             s.agent.clear();
             s.actions.clear();
         })
@@ -461,6 +544,27 @@ impl Link {
             .await;
         }
     }
+}
+
+/// Resolves on the next network hint; never, if there is no watcher.
+async fn net_changed(net: &mut Option<watch::Receiver<u64>>) {
+    if let Some(rx) = net {
+        if rx.changed().await.is_ok() {
+            return;
+        }
+        *net = None; // watcher gone: fall back to the backoff alone
+    }
+    std::future::pending::<()>().await
+}
+
+/// Asks the kernel for a route to `addr` (a UDP "connect" sends nothing).
+fn route_exists(addr: std::net::SocketAddr) -> std::io::Result<()> {
+    let any: std::net::SocketAddr = if addr.is_ipv4() {
+        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+    };
+    std::net::UdpSocket::bind(any)?.connect(addr)
 }
 
 /// Connect + handshake + pin check + hello/welcome, within [`HANDSHAKE_TIMEOUT`].

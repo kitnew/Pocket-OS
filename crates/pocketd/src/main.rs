@@ -5,13 +5,16 @@
 //! `/org/pocketos/Core1/Dock` → own
 //! `org.pocketos.Core1` (fail fast if another core owns it) → mark ready (emits
 //! `StateChanged`) → serve until SIGTERM/SIGINT, loss of the name, or bus disconnect →
-//! release the name and exit. State is in memory only; a restarted core starts fresh and
-//! clients resynchronise on the bus-name owner change.
+//! release the name and exit. State is in memory; clients resynchronise on the bus-name
+//! owner change. Within a graphical session the user's mode and Dock link intent survive
+//! a restart (`recovery`, issue #5): the new core starts in the recovered mode and
+//! reconnects the Dock link if it was wanted.
 //!
 //! Logging: `POCKETD_LOG` (tracing env-filter syntax, default `info`) to stderr.
 
 mod apps;
 mod dock;
+mod recovery;
 mod service;
 
 use std::process::ExitCode;
@@ -79,11 +82,16 @@ async fn run() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    let (recovery, recovered) = recovery::Recovery::open(recovery::session_path());
     let apps = AppsService::new();
     let app_dirs = apps.dirs();
-    let (dock, dock_state, dock_cmds) = dock::DockService::new(dock::config::dir());
+    let (dock, dock_control, dock_state, dock_cmds) =
+        dock::DockService::new(dock::config::dir(), recovered.dock_wanted);
     let conn = match connection::Builder::session()
-        .serve_at(OBJECT_PATH, CoreService::new())
+        .serve_at(
+            OBJECT_PATH,
+            CoreService::new(recovered.mode, recovery.clone(), dock_control.clone()),
+        )
         .serve_at(pocket_ipc::dbus::apps::OBJECT_PATH, apps)
         .serve_at(pocket_ipc::dbus::dock::OBJECT_PATH, dock)
         .build()
@@ -135,8 +143,28 @@ async fn run() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let watcher = tokio::spawn(apps::watch(conn.clone(), app_dirs));
-    let dock_link = tokio::spawn(dock::link::Link::new(conn.clone(), dock_state, dock_cmds).run());
-    info!(name = BUS_NAME, path = OBJECT_PATH, unique = ?conn.unique_name().map(|n| n.as_str()), "pocketd ready");
+    let dock_link = tokio::spawn(
+        dock::link::Link::new(
+            conn.clone(),
+            dock_state,
+            dock_cmds,
+            recovery,
+            dock::netwatch::spawn(),
+        )
+        .run(),
+    );
+    info!(name = BUS_NAME, path = OBJECT_PATH, unique = ?conn.unique_name().map(|n| n.as_str()), mode = %recovered.mode, "pocketd ready");
+    // A fresh authenticated session to the trusted computer, if the user wanted one
+    // before the restart. Nothing about the old session is reused.
+    if recovered.dock_wanted {
+        match dock_control.connect("restoring the link after a core restart") {
+            Ok(()) => {}
+            Err(dock::ConnectError::NotConfigured(e)) => {
+                warn!(reason = %e, "dock: link was wanted but no computer is configured")
+            }
+            Err(dock::ConnectError::Core(e)) => warn!(error = ?e, "dock: cannot restore the link"),
+        }
+    }
 
     let stop = tokio::select! {
         _ = sigterm.recv() => Stop::Signal("SIGTERM"),

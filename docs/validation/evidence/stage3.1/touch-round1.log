@@ -1,0 +1,9 @@
+# Stage 3.1 physical touch round 1 (user: all steps OK). pocketd log lines caused by the taps; agent log alongside.
+2026-11-23T14:00:52.952616Z  INFO pocketd::service: RequestMode sender=:1.17 requested=dock
+2026-11-23T14:00:52.955003Z  INFO pocketd::dock: dock Connect why="entered dock mode" host=nikitapc address=172.16.42.2:47130
+2026-11-23T14:00:52.974153Z  INFO pocketd::dock::link: dock: connected agent=pocket-desktop-agent 0.1.0 host=nikitapc actions=["desktop.notify", "media.play_pause"]
+2026-11-23T14:00:59.618843Z  INFO pocketd::dock::link: dock: action confirmed by the computer request=2 action=desktop.notify data={"notification_id":7}
+2026-11-23T14:01:13.271532Z  INFO pocketd::dock::link: dock: action confirmed by the computer request=3 action=desktop.notify data={"notification_id":8}
+2026-11-23T14:01:21.929798Z  INFO pocketd::dock: dock Disconnect sender=:1.17
+2026-11-23T14:01:25.749007Z  INFO pocketd::dock: dock Connect why="requested by :1.17" host=nikitapc address=172.16.42.2:47130
+2026-11-23T14:01:25.767734Z  INFO pocketd::dock::link: dock: connected agent=pocket-desktop-agent 0.1.0 host=nikitapc actions=["desktop.notify", "media.play_pause"]

@@ -1,0 +1,77 @@
+# Stage 3.1 physical round 2 (user: all as described). Orchestrator output (host clock, CET):
+15:02:09.632 waiting for an action tap
+15:02:29.549 action tap seen; restarting core in 3 s
+15:02:32.552 restart core
+15:02:33.511 state: Connected dock 90 connected - 0 0 True True
+15:02:41.513 stopping the agent
+15:02:42.256 state: Connected dock 90 error connection_closed 1317 2 True True
+15:02:44.198 state: Connected dock 90 error unreachable 3382 4 True True
+15:02:46.099 state: Connected dock 90 error unreachable 1482 2 True True
+15:02:48.024 state: Connected dock 90 error unreachable 7563 8 True True
+15:02:49.942 state: Connected dock 90 error unreachable 5643 6 True True
+15:02:51.994 state: Connected dock 90 error unreachable 1702 2 True True
+15:02:53.214 user pressed Retry now
+15:02:53.905 state: Connected dock 90 error unreachable 940 1 True True
+15:02:55.565 state: Connected dock 90 error unreachable 3270 4 True True
+15:02:57.256 state: Connected dock 90 error unreachable 1578 2 True True
+15:02:58.987 state: Connected dock 90 error unreachable 7854 8 True True
+15:03:00.647 state: Connected dock 90 error unreachable 6192 7 True True
+15:03:02.351 state: Connected dock 90 error unreachable 4489 5 True True
+15:03:03.353 waiting for Back to Handheld
+15:03:04.223 handheld requested; state: Connected handheld 0 error unreachable 2617 5 False True
+15:03:06.951 state: Connected handheld 0 error unreachable 15925 16 False True
+15:03:06.982 agent started
+15:03:22.953 state: Connected handheld 0 connected - 0 0 False True
+15:03:23.202 done
+
+# phone session log excerpt (UTC):
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.action id=desktop.notify
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.action.finished request=4 id=desktop.notify ok=true code=- message="" data={"notification_id":9}
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=-
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=false state=connected host="nikitapc" error=- retry_ms=0 wanted=true
+2026-11-23T14:02:30.709936Z  INFO pocketd::recovery: recovery: restoring session choices mode=dock dock_wanted=true path=/run/user/10000/pocket-os/core-recovery.json
+2026-11-23T14:02:30.763214Z  INFO pocketd::dock: dock Connect why="restoring the link after a core restart" host=nikitapc address=172.16.42.2:47130
+2026-11-23T14:02:30.778571Z  INFO pocketd::dock::link: dock: connected agent=pocket-desktop-agent 0.1.0 host=nikitapc actions=["desktop.notify", "media.play_pause"]
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=- retry_ms=0 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connected host="nikitapc" error=- retry_ms=0 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=desktop.notify,media.play_pause
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=desktop.notify,media.play_pause
+2026-11-23T14:02:39.420444Z  WARN pocketd::dock::link: dock: link failed code=connection_closed error=the computer closed the connection retry_in=Some(2s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=connection_closed retry_ms=1999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=-
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=connection_closed retry_ms=0 wanted=true
+2026-11-23T14:02:41.424954Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(4s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=3999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:02:45.428538Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(8s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=7999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.connect state=error
+2026-11-23T14:02:49.534207Z  INFO pocketd::dock: dock Connect why="requested by :1.17" host=nikitapc address=172.16.42.2:47130
+2026-11-23T14:02:49.534754Z  INFO pocketd::dock::link: dock: Connect while waiting; retrying now
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:02:49.538109Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(2s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=1999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.connect state=error
+2026-11-23T14:02:50.669903Z  INFO pocketd::dock: dock Connect why="requested by :1.17" host=nikitapc address=172.16.42.2:47130
+2026-11-23T14:02:50.672725Z  INFO pocketd::dock::link: dock: Connect while waiting; retrying now
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:02:50.675309Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(2s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=1999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:02:52.679351Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(4s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=3999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:02:56.683650Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(8s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=7999 wanted=true
+2026-11-23T14:03:00.410706Z  INFO pocketd::service: RequestMode sender=:1.17 requested=handheld
+2026-11-23T14:03:00.411103Z  INFO pocketd::recovery: recovery: saved mode=handheld dock_wanted=true
+2026-11-23T14:03:00.411127Z  INFO pocketd::service: mode changed from=dock to=handheld
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.mode docked=false
+[32m  INFO[97m pocket.shell.diag[0m: event=output.rotation rotation=0
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:03:04.687986Z  WARN pocketd::dock::link: dock: link failed code=unreachable error=cannot reach 172.16.42.2:47130: Connection refused (os error 111) retry_in=Some(16s)
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=error host="nikitapc" error=unreachable retry_ms=15999 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connecting host="nikitapc" error=unreachable retry_ms=0 wanted=true
+2026-11-23T14:03:20.702138Z  INFO pocketd::dock::link: dock: connected agent=pocket-desktop-agent 0.1.0 host=nikitapc actions=["desktop.notify", "media.play_pause"]
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.state supported=true state=connected host="nikitapc" error=- retry_ms=0 wanted=true
+[32m  INFO[97m pocket.shell.diag[0m: event=dock.actions ids=desktop.notify,media.play_pause
