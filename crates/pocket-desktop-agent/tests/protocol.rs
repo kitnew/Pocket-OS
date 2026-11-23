@@ -1273,3 +1273,267 @@ async fn app_launch_starts_only_registered_installed_apps_without_a_shell() {
     assert!(!dir.join("a").exists(), "no shell split the argument");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+// ── Stage 4.5: live configuration, destinations, laptop-approved access requests ──────
+
+/// A notification server that hands out increasing ids and records the actions offered.
+struct FakePrompter {
+    next: std::sync::atomic::AtomicU32,
+    tx: tokio::sync::mpsc::UnboundedSender<(u32, Vec<String>)>,
+}
+
+#[zbus::interface(name = "org.freedesktop.Notifications")]
+impl FakePrompter {
+    #[allow(clippy::too_many_arguments)]
+    fn notify(
+        &self,
+        _app_name: String,
+        _replaces_id: u32,
+        _app_icon: String,
+        _summary: String,
+        _body: String,
+        actions: Vec<String>,
+        _hints: std::collections::HashMap<String, zbus::OwnedVariant>,
+        _expire: i32,
+    ) -> u32 {
+        let id = self.next.fetch_add(1, Ordering::SeqCst);
+        let _ = self.tx.send((id, actions));
+        id
+    }
+    fn close_notification(&self, _id: u32) {}
+}
+
+fn temp_config(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("pocket-agent-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.json");
+    let cfg: pocket_desktop_agent::config::Config =
+        serde_json::from_value(json!({"listen": "127.0.0.1:1"})).unwrap();
+    cfg.save(&path).unwrap();
+    (dir, path)
+}
+
+#[tokio::test]
+async fn access_requests_are_decided_on_the_laptop_only() {
+    use pocket_desktop_agent::actions::access::AccessConfig;
+    use pocket_desktop_agent::config::Config;
+    let bus = private_bus();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = zbus::connection::Builder::address(bus.1.as_str())
+        .name("org.freedesktop.Notifications")
+        .serve_at(
+            "/org/freedesktop/Notifications",
+            FakePrompter { next: 7.into(), tx },
+        )
+        .build()
+        .await
+        .unwrap();
+    let client = zbus::connection::Builder::address(bus.1.as_str())
+        .build()
+        .await
+        .unwrap();
+    let (dir, path) = temp_config("access");
+
+    let mut reg = Registry::new();
+    pocket_desktop_agent::actions::builtin(&mut reg, desktop(Some(client.clone()), None));
+    reg.set_access(AccessConfig {
+        bus: client,
+        config_path: Some(path.clone()),
+        host_name: "test".into(),
+    });
+    let reg = Arc::new(reg);
+    let info = |id: &str| reg.list().into_iter().find(|a| a.id == id).unwrap();
+    let ask = info("access.request");
+    assert!(ask.available, "{}", ask.reason);
+    assert_eq!(
+        ask.privilege,
+        pocket_dock_protocol::message::Privilege::Basic
+    );
+    let choices: Vec<String> = ask.params[0]
+        .choices
+        .iter()
+        .map(|c| c.value.clone())
+        .collect();
+    assert!(choices.contains(&"session.lock".to_owned()), "{choices:?}");
+    assert!(
+        !choices.contains(&"media.next".to_owned()),
+        "basic actions are not requestable"
+    );
+
+    let p = |v: Value| v.as_object().unwrap().clone();
+    // Only elevated actions can be asked for.
+    let e = reg
+        .invoke("access.request", &p(json!({"action": "media.next"})))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::NOT_PERMITTED);
+
+    // Ask → prompt with Allow/Deny on the laptop; nothing is granted yet.
+    let r = reg
+        .invoke("access.request", &p(json!({"action": "session.lock"})))
+        .await
+        .unwrap();
+    assert_eq!(r["status"], "asked");
+    let (nid, actions) = timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+    assert_eq!(actions, ["deny", "Deny", "allow", "Allow"]);
+    assert!(!info("session.lock").available, "asking grants nothing");
+    // One open prompt at a time.
+    let e = reg
+        .invoke("access.request", &p(json!({"action": "desktop.shortcut"})))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::UNAVAILABLE);
+
+    // The laptop owner clicks Allow: granted now and saved.
+    let mut changes = reg.subscribe();
+    changes.mark_unchanged();
+    server
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(nid, "allow"),
+        )
+        .await
+        .unwrap();
+    until(|| reg.is_granted("session.lock")).await;
+    timeout(WAIT, changes.changed()).await.unwrap().unwrap();
+    assert!(!info("session.lock").reason.contains("not granted"));
+    assert!(
+        Config::load(&path)
+            .unwrap()
+            .grants
+            .contains(&"session.lock".to_owned())
+    );
+    assert!(
+        !info("access.request").params[0]
+            .choices
+            .iter()
+            .any(|c| c.value == "session.lock"),
+        "granted actions are no longer requestable"
+    );
+
+    // Deny: nothing granted, and the same request is refused for a while.
+    reg.invoke("access.request", &p(json!({"action": "desktop.shortcut"})))
+        .await
+        .unwrap();
+    let (nid, _) = timeout(WAIT, rx.recv()).await.unwrap().unwrap();
+    server
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(nid, "deny"),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!reg.is_granted("desktop.shortcut"));
+    let e = reg
+        .invoke("access.request", &p(json!({"action": "desktop.shortcut"})))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::UNAVAILABLE);
+    assert!(e.message.contains("denied"), "{}", e.message);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn config_reload_and_destinations_apply_without_a_restart() {
+    use pocket_desktop_agent::config::{Config, Destination};
+    let dir = std::env::temp_dir().join(format!("pocket-agent-dest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let apps = dir.join("applications");
+    std::fs::create_dir_all(&apps).unwrap();
+    let marker = dir.join("opened");
+    let script = dir.join("opener");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\necho \"$@\" > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(
+        apps.join("test.editor.desktop"),
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Editor\nExec={} %F\n",
+            script.display()
+        ),
+    )
+    .unwrap();
+    let project = dir.join("my project");
+    std::fs::create_dir_all(&project).unwrap();
+    let opts = pocket_platform::apps::ScanOptions {
+        dirs: vec![apps.clone()],
+        desktops: vec![],
+        locales: vec![],
+        path: std::env::split_paths(&std::env::var_os("PATH").unwrap()).collect(),
+        resolve_icons: false,
+        icon_theme: String::new(),
+    };
+    let catalog = pocket_platform::apps::Catalog::scan(&opts).0;
+    let mut reg = Registry::new();
+    reg.register(
+        pocket_desktop_agent::actions::destinations::OpenDestination::new(
+            reg.lists(),
+            Arc::new(std::sync::Mutex::new(Some(catalog))),
+        ),
+    );
+    let reg = Arc::new(reg);
+    let info = |id: &str| reg.list().into_iter().find(|a| a.id == id).unwrap();
+    let open = info("desktop.open");
+    assert!(!open.available);
+    assert_eq!(
+        open.privilege,
+        pocket_dock_protocol::message::Privilege::Elevated
+    );
+
+    let mut cfg: Config = serde_json::from_value(json!({"listen": "127.0.0.1:1"})).unwrap();
+    cfg.grants = vec!["desktop.open".into()];
+    cfg.destinations = vec![Destination {
+        id: "proj".into(),
+        label: "My project".into(),
+        app: "test.editor".into(),
+        target: project.to_string_lossy().into_owned(),
+    }];
+    let mut changes = reg.subscribe();
+    changes.mark_unchanged();
+    reg.apply_config(&cfg);
+    timeout(WAIT, changes.changed()).await.unwrap().unwrap();
+    let open = info("desktop.open");
+    assert!(open.available, "{}", open.reason);
+    assert_eq!(open.params[0].choices[0].label, "My project");
+
+    let p = |v: Value| v.as_object().unwrap().clone();
+    let r = reg
+        .invoke("desktop.open", &p(json!({"destination": "proj"})))
+        .await
+        .unwrap();
+    assert_eq!(r["app"], "test.editor");
+    until(|| marker.exists()).await;
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap().trim_end(),
+        project.to_string_lossy(),
+        "the configured target, as one argument, through the entry's %F"
+    );
+    for bad in ["other", "/etc/passwd"] {
+        let e = reg
+            .invoke("desktop.open", &p(json!({"destination": bad})))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, error_code::NOT_PERMITTED, "{bad}");
+    }
+
+    // Revoking through a reload takes effect immediately.
+    cfg.grants.clear();
+    reg.apply_config(&cfg);
+    let e = reg
+        .invoke("desktop.open", &p(json!({"destination": "proj"})))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::NOT_PERMITTED);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -17,6 +17,8 @@
 //!   "workflows": [ { "id": "start-work", "label": "Start work", "steps": [
 //!       { "action": "app.launch", "params": { "app": "org.kde.konsole" } },
 //!       { "action": "desktop.shortcut", "params": { "shortcut": "desktop_next" } } ] } ],
+//!   "destinations": [ { "id": "pocket-os", "label": "Pocket OS repo", "app": "code",
+//!                       "target": "~/Projects/Pocket-OS" } ],
 //!   "notifications": { "forward": false, "allow_apps": null, "deny_apps": [],
 //!                      "redact_when_locked": true } }
 //! ```
@@ -25,6 +27,9 @@
 //! Stage 4 (ADR-0008): `grants` lists the *elevated* actions the phone may run (none by
 //! default); `apps` the desktop IDs `app.launch` may start; `workflows` named sequences
 //! of registered actions; `notifications` the forwarding policy (off by default).
+//! `destinations` (issue #16): named folders/files/links `desktop.open` may open with a
+//! registered-or-not desktop application; the phone only ever picks an `id`.
+//! A running agent re-reads this file on SIGHUP (the CLI sends it after every edit).
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -56,8 +61,39 @@ pub struct Config {
     pub apps: Vec<String>,
     #[serde(default)]
     pub workflows: Vec<WorkflowConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub destinations: Vec<Destination>,
     #[serde(default)]
     pub notifications: NotificationPolicy,
+}
+
+/// A predefined place `desktop.open` may open (issue #16): `target` is a local path
+/// (absolute or `~/…`) or an http(s) URL, opened with the desktop application `app`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Destination {
+    pub id: String,
+    pub label: String,
+    pub app: String,
+    pub target: String,
+}
+
+impl Destination {
+    /// The target with `~/` expanded against `home`.
+    pub fn resolved_target(&self, home: Option<&Path>) -> String {
+        match (self.target.strip_prefix("~/"), home) {
+            (Some(rest), Some(h)) => h.join(rest).to_string_lossy().into_owned(),
+            _ => self.target.clone(),
+        }
+    }
+}
+
+fn is_valid_target(t: &str) -> bool {
+    (1..=1024).contains(&t.len())
+        && !t.chars().any(char::is_control)
+        && (t.starts_with('/')
+            || t.starts_with("~/")
+            || t.starts_with("https://")
+            || t.starts_with("http://"))
 }
 
 /// A named sequence of registered actions (`workflow.run`).
@@ -258,6 +294,31 @@ impl Config {
                 }
             }
         }
+        let mut dests = std::collections::HashSet::new();
+        for d in &self.destinations {
+            let at = format!("destination {:?}", d.id);
+            if !pocket_dock_protocol::is_valid_action_id(&d.id) || !dests.insert(d.id.clone()) {
+                return Err(ConfigError::Invalid(format!(
+                    "{at}: invalid or duplicate id"
+                )));
+            }
+            if d.label.trim().is_empty() || d.label.chars().count() > 40 {
+                return Err(ConfigError::Invalid(format!(
+                    "{at}: label needs 1–40 characters"
+                )));
+            }
+            if !is_valid_desktop_id(&d.app) {
+                return Err(ConfigError::Invalid(format!(
+                    "{at}: invalid desktop ID {:?}",
+                    d.app
+                )));
+            }
+            if !is_valid_target(&d.target) {
+                return Err(ConfigError::Invalid(format!(
+                    "{at}: target must be an absolute path, ~/path or http(s) URL"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -284,4 +345,47 @@ impl Config {
 
 pub fn load_identity(paths: &Paths) -> Result<Identity, ConfigError> {
     Ok(Identity::load(&paths.identity)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> Config {
+        serde_json::from_str(r#"{"listen": "127.0.0.1:1"}"#).unwrap()
+    }
+
+    #[test]
+    fn destinations_are_validated() {
+        let mut c = cfg();
+        let d = |id: &str, app: &str, target: &str| Destination {
+            id: id.into(),
+            label: "L".into(),
+            app: app.into(),
+            target: target.into(),
+        };
+        c.destinations = vec![
+            d("repo", "code", "~/Projects/x"),
+            d("site", "org.mozilla.firefox", "https://example.org"),
+            d("etc", "org.kde.dolphin", "/etc"),
+        ];
+        assert!(c.validate().is_ok());
+        for bad in [
+            d("Repo", "code", "/x"),
+            d("a", "../code", "/x"),
+            d("a", "code", "relative/x"),
+            d("a", "code", "file:///x"),
+            d("a", "code", "/x\n--flag"),
+            d("a", "code", ""),
+        ] {
+            c.destinations = vec![bad.clone()];
+            assert!(c.validate().is_err(), "accepted {bad:?}");
+        }
+        c.destinations = vec![d("a", "code", "/x"), d("a", "code", "/y")];
+        assert!(c.validate().is_err(), "duplicate id");
+        assert_eq!(
+            d("a", "code", "~/p").resolved_target(Some(Path::new("/home/u"))),
+            "/home/u/p"
+        );
+    }
 }

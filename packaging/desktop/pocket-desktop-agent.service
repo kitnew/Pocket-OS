@@ -9,13 +9,18 @@ PartOf=graphical-session.target
 
 [Service]
 ExecStart=%h/.local/bin/pocket-desktop-agent run
+# Re-read config.json (grants, apps, destinations, workflows) without a restart.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 Environment=POCKET_AGENT_LOG=info
-# It only needs to read its configuration and talk to the session bus.
+# It needs its configuration (written when the owner approves an access request) and
+# the session bus. Applications it starts run as transient user services (systemd-run),
+# so they do NOT inherit this sandbox.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=%h/.config/pocket-desktop-agent
 PrivateTmp=yes
 
 [Install]

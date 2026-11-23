@@ -17,6 +17,8 @@ use zbus::Variant;
 use super::{Action, ActionFuture, Params, string_param};
 
 pub const ID: &str = "desktop.notify";
+/// The application name of the agent's own notifications (never forwarded back).
+pub const OWN_APP_NAME: &str = crate::notifications::OWN_APP;
 
 pub struct DesktopNotify {
     bus: Option<zbus::Connection>,
@@ -63,7 +65,7 @@ impl Action for DesktopNotify {
                     Some("org.freedesktop.Notifications"),
                     "Notify",
                     &(
-                        "Pocket OS",
+                        OWN_APP_NAME,
                         0u32,
                         "phone",
                         title,

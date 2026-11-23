@@ -17,7 +17,9 @@
 //! itself: each step goes through the same checks, so a workflow can never do more than
 //! its steps are allowed to.
 
+pub mod access;
 pub mod apps;
+pub mod destinations;
 pub mod kde;
 pub mod media;
 pub mod notify;
@@ -26,7 +28,7 @@ pub mod session;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use pocket_dock_protocol::error_code;
 use pocket_dock_protocol::message::{
@@ -35,7 +37,7 @@ use pocket_dock_protocol::message::{
 use serde_json::{Map, Value, json};
 use tokio::sync::{mpsc, watch};
 
-use crate::config::WorkflowConfig;
+use crate::config::{Config, Destination, WorkflowConfig};
 
 pub type Params = Map<String, Value>;
 pub type ActionResult = Result<Value, ErrorInfo>;
@@ -63,14 +65,43 @@ impl Changes {
     }
 }
 
-pub struct Registry {
-    actions: Vec<Arc<dyn Action>>,
+/// The laptop owner's policy. Changeable while serving (config reload, approved access
+/// requests); every change is announced to connected phones.
+#[derive(Default)]
+pub struct Policy {
     /// `None` = every registered action is enabled.
     enabled: Option<HashSet<String>>,
     /// Elevated actions the laptop owner granted.
     grants: HashSet<String>,
     workflows: Vec<WorkflowConfig>,
+}
+
+/// Closed lists owned by the laptop configuration that actions read at run time
+/// (`app.launch` registered apps, `desktop.open` destinations).
+#[derive(Default)]
+pub struct Lists {
+    pub apps: RwLock<Vec<String>>,
+    pub destinations: RwLock<Vec<Destination>>,
+}
+
+impl Lists {
+    pub fn apps(&self) -> Vec<String> {
+        self.apps.read().map(|a| a.clone()).unwrap_or_default()
+    }
+    pub fn destinations(&self) -> Vec<Destination> {
+        self.destinations
+            .read()
+            .map(|d| d.clone())
+            .unwrap_or_default()
+    }
+}
+
+pub struct Registry {
+    actions: Vec<Arc<dyn Action>>,
+    policy: Arc<RwLock<Policy>>,
+    lists: Arc<Lists>,
     changes: Arc<watch::Sender<u64>>,
+    access: Option<access::Access>,
 }
 
 impl Default for Registry {
@@ -87,26 +118,77 @@ impl Registry {
     pub fn new() -> Self {
         Registry {
             actions: Vec::new(),
-            enabled: None,
-            grants: HashSet::new(),
-            workflows: Vec::new(),
+            policy: Arc::default(),
+            lists: Arc::default(),
             changes: Arc::new(watch::channel(0).0),
+            access: None,
         }
     }
 
+    fn policy(&self) -> std::sync::RwLockReadGuard<'_, Policy> {
+        self.policy.read().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn update(&self, f: impl FnOnce(&mut Policy)) {
+        f(&mut self.policy.write().unwrap_or_else(|p| p.into_inner()));
+        self.changes().notify();
+    }
+
     /// Restricts the advertised and executable actions to `ids`.
-    pub fn set_enabled(&mut self, ids: Option<impl IntoIterator<Item = String>>) {
-        self.enabled = ids.map(|i| i.into_iter().collect());
+    pub fn set_enabled(&self, ids: Option<impl IntoIterator<Item = String>>) {
+        let ids = ids.map(|i| i.into_iter().collect());
+        self.update(|p| p.enabled = ids);
     }
 
     /// The elevated actions this computer allows.
-    pub fn set_grants(&mut self, ids: impl IntoIterator<Item = String>) {
-        self.grants = ids.into_iter().collect();
+    pub fn set_grants(&self, ids: impl IntoIterator<Item = String>) {
+        let ids = ids.into_iter().collect();
+        self.update(|p| p.grants = ids);
+    }
+
+    /// Adds one grant (an access request the laptop owner approved).
+    pub fn grant(&self, id: &str) {
+        self.update(|p| {
+            p.grants.insert(id.to_owned());
+        });
+    }
+
+    pub fn is_granted(&self, id: &str) -> bool {
+        self.policy().grants.contains(id)
     }
 
     /// Configured workflows (`workflow.run` is advertised when there is at least one).
-    pub fn set_workflows(&mut self, workflows: Vec<WorkflowConfig>) {
-        self.workflows = workflows;
+    pub fn set_workflows(&self, workflows: Vec<WorkflowConfig>) {
+        self.update(|p| p.workflows = workflows);
+    }
+
+    /// Enables `access.request` (prompts on this desktop; see [`access`]).
+    pub fn set_access(&mut self, cfg: access::AccessConfig) {
+        self.access = Some(access::Access::new(cfg));
+    }
+
+    /// The laptop-owned lists actions read (registered apps, destinations).
+    pub fn lists(&self) -> Arc<Lists> {
+        self.lists.clone()
+    }
+
+    /// Applies a (re)loaded configuration: enabled actions, grants, workflows, registered
+    /// apps and destinations. Connected phones get the new advertisement immediately.
+    pub fn apply_config(&self, cfg: &Config) {
+        if let Ok(mut a) = self.lists.apps.write() {
+            *a = cfg.apps.clone();
+        }
+        if let Ok(mut d) = self.lists.destinations.write() {
+            *d = cfg.destinations.clone();
+        }
+        let enabled = cfg.enabled_actions.clone().map(|v| v.into_iter().collect());
+        let grants = cfg.grants.iter().cloned().collect();
+        let workflows = cfg.workflows.clone();
+        self.update(|p| {
+            p.enabled = enabled;
+            p.grants = grants;
+            p.workflows = workflows;
+        });
     }
 
     /// Handle actions use to announce availability changes.
@@ -126,7 +208,7 @@ impl Registry {
             "invalid action id {id:?}"
         );
         assert!(
-            id != WORKFLOW_ID && self.find(&id).is_none(),
+            id != WORKFLOW_ID && id != access::ID && self.find(&id).is_none(),
             "duplicate action id {id:?}"
         );
         self.actions.push(Arc::new(action));
@@ -137,15 +219,19 @@ impl Registry {
     }
 
     fn is_enabled(&self, id: &str) -> bool {
-        self.enabled.as_ref().is_none_or(|e| e.contains(id))
+        self.policy()
+            .enabled
+            .as_ref()
+            .is_none_or(|e| e.contains(id))
     }
 
     fn workflow_info(&self) -> Option<ActionInfo> {
-        if self.workflows.is_empty() {
+        let policy = self.policy();
+        if policy.workflows.is_empty() {
             return None;
         }
         let mut p = ParamInfo::new("workflow", ParamKind::String, true);
-        p.choices = self
+        p.choices = policy
             .workflows
             .iter()
             .map(|w| Choice {
@@ -167,22 +253,58 @@ impl Registry {
     /// The action's advertisement with authorization applied (ungranted elevated actions
     /// are listed as unavailable, with the reason).
     fn authorized_info(&self, mut info: ActionInfo) -> ActionInfo {
-        if info.privilege == Privilege::Elevated && !self.grants.contains(&info.id) {
+        if info.privilege == Privilege::Elevated && !self.is_granted(&info.id) {
             info.available = false;
             info.reason = not_granted(&info.id);
         }
         info
     }
 
-    /// Enabled actions, in registration order (`workflow.run` last).
+    /// Enabled actions, in registration order (`workflow.run`, then `access.request`
+    /// last).
     pub fn list(&self) -> Vec<ActionInfo> {
         self.actions
             .iter()
             .map(|a| a.info())
             .chain(self.workflow_info())
+            .chain(self.access_info())
             .filter(|i| self.is_enabled(&i.id))
             .map(|i| self.authorized_info(i))
             .collect()
+    }
+
+    /// Elevated actions that are enabled but not granted: what `access.request` may ask
+    /// for.
+    fn requestable(&self) -> Vec<(String, String)> {
+        self.actions
+            .iter()
+            .map(|a| a.info())
+            .chain(self.workflow_info())
+            .filter(|i| i.privilege == Privilege::Elevated)
+            .filter(|i| self.is_enabled(&i.id) && !self.is_granted(&i.id))
+            .map(|i| (i.id, i.label))
+            .collect()
+    }
+
+    fn access_info(&self) -> Option<ActionInfo> {
+        self.access.as_ref()?;
+        let mut p = ParamInfo::new("action", ParamKind::String, true);
+        p.choices = self
+            .requestable()
+            .into_iter()
+            .map(|(value, label)| Choice { value, label })
+            .collect();
+        let reason = p
+            .choices
+            .is_empty()
+            .then(|| "every desktop action is already allowed".to_owned());
+        Some(
+            ActionInfo {
+                params: vec![p],
+                ..ActionInfo::new(access::ID, "Ask for access", "access")
+            }
+            .unavailable_if(reason),
+        )
     }
 
     /// Validates, authorizes and runs one invocation.
@@ -200,6 +322,22 @@ impl Registry {
         if info.id == WORKFLOW_ID {
             return self.run_workflow(params, progress).await;
         }
+        if info.id == access::ID {
+            let want = params
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let label = info.params[0]
+                .choices
+                .iter()
+                .find(|c| c.value == want)
+                .map(|c| c.label.clone())
+                .unwrap_or_else(|| want.to_owned());
+            let access = self.access.as_ref().expect("advertised only with access");
+            return access
+                .request(want, &label, self.policy.clone(), self.changes.clone())
+                .await;
+        }
         match self.find(id) {
             Some(a) => a.execute(params).await,
             None => Err(ErrorInfo::new(
@@ -214,6 +352,8 @@ impl Registry {
         let info = if pocket_dock_protocol::is_valid_action_id(id) {
             if id == WORKFLOW_ID {
                 self.workflow_info()
+            } else if id == access::ID {
+                self.access_info()
             } else {
                 self.find(id).map(|a| a.info())
             }
@@ -232,7 +372,7 @@ impl Registry {
                 format!("action {id:?} is disabled in the agent configuration"),
             ));
         }
-        if info.privilege == Privilege::Elevated && !self.grants.contains(id) {
+        if info.privilege == Privilege::Elevated && !self.is_granted(id) {
             return Err(ErrorInfo::new(error_code::NOT_PERMITTED, not_granted(id)));
         }
         if !info.available {
@@ -247,7 +387,13 @@ impl Registry {
             .get("workflow")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let Some(w) = self.workflows.iter().find(|w| w.id == wid) else {
+        let Some(w) = self
+            .policy()
+            .workflows
+            .iter()
+            .find(|w| w.id == wid)
+            .cloned()
+        else {
             return Err(ErrorInfo::new(
                 error_code::NOT_PERMITTED,
                 format!("no workflow {wid:?}"),
@@ -346,7 +492,16 @@ pub fn builtin(registry: &mut Registry, desktop: Desktop) {
         registry.register(kde::VolumeAction::new(v, kde.clone()));
     }
     registry.register(kde::ShortcutAction::new(kde));
-    registry.register(apps::AppLaunch::new(desktop.apps, changes));
+    if let Ok(mut a) = registry.lists.apps.write() {
+        *a = desktop.apps;
+    }
+    let launch = apps::AppLaunch::new(registry.lists(), changes);
+    let catalog = launch.catalog();
+    registry.register(launch);
+    registry.register(destinations::OpenDestination::new(
+        registry.lists(),
+        catalog,
+    ));
     registry.register(session::SessionLock::new(desktop.bus));
 }
 

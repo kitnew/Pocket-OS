@@ -60,10 +60,41 @@ impl App {
     /// A `Command` ready to spawn: no shell, stdin closed, own process group (so session
     /// signals aimed at the launcher do not hit the application), inherited environment.
     pub fn command(&self) -> Command {
-        let mut cmd = Command::new(&self.argv[0]);
-        cmd.args(&self.argv[1..])
-            .stdin(Stdio::null())
-            .process_group(0);
+        self.command_for(&self.argv)
+    }
+
+    /// A `Command` that opens `targets` (files or URLs) with this application, through
+    /// the entry's own `%f`/`%F`/`%u`/`%U` field code (re-read from [`App::source`]).
+    /// Meant for targets chosen by trusted local configuration (Dock destinations), never
+    /// for remote input. Errors if the entry cannot open files or URLs.
+    pub fn open_command(&self, targets: &[&str], locales: &[String]) -> Result<Command, String> {
+        let entry = DesktopEntry::from_path(&self.source, Some(locales))
+            .map_err(|e| format!("{}: {e}", self.source.display()))?;
+        let raw = entry.exec().ok_or("no Exec key")?.to_owned();
+        let tokens: Vec<&str> = raw.split_ascii_whitespace().collect();
+        if !tokens
+            .iter()
+            .any(|t| matches!(*t, "%f" | "%F" | "%u" | "%U"))
+        {
+            return Err(format!("{} cannot open files or links", self.name));
+        }
+        let mut entry = entry;
+        if tokens.contains(&"%i") {
+            let fixed: Vec<&str> = tokens.into_iter().filter(|t| *t != "%i").collect();
+            entry.add_desktop_entry("Exec".into(), fixed.join(" "));
+        }
+        let argv = entry
+            .parse_exec_with_uris(targets, locales)
+            .map_err(|e| e.to_string())?;
+        if argv.is_empty() || argv.iter().any(|a| has_field_code(a)) {
+            return Err(format!("unsupported Exec in {}", self.source.display()));
+        }
+        Ok(self.command_for(&argv))
+    }
+
+    fn command_for(&self, argv: &[String]) -> Command {
+        let mut cmd = Command::new(&argv[0]);
+        cmd.args(&argv[1..]).stdin(Stdio::null()).process_group(0);
         match &self.working_dir {
             Some(dir) if dir.is_dir() => {
                 cmd.current_dir(dir);
@@ -661,6 +692,55 @@ mod tests {
         let status = cat.get("writer").unwrap().command().status().unwrap();
         assert!(status.success());
         assert_eq!(fs::read_to_string(marker).unwrap(), "$(id) x\n");
+    }
+
+    #[test]
+    fn open_command_expands_targets_through_the_entry() {
+        let f = Fixture::new();
+        let marker = f.root.0.join("opened");
+        let script = f.root.0.join("bin/opener");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\necho \"$@\" > '{}'\n", marker.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        f.entry(
+            "low",
+            "opener.desktop",
+            &format!(
+                "[Desktop Entry]\nType=Application\nName=o\nExec={} --new %F\n",
+                script.display()
+            ),
+        );
+        f.entry(
+            "low",
+            "plain.desktop",
+            &format!(
+                "[Desktop Entry]\nType=Application\nName=p\nExec={}\n",
+                script.display()
+            ),
+        );
+        let (cat, _) = f.scan();
+        let app = cat.get("opener").unwrap();
+        // The launcher command still opens nothing.
+        assert!(!app.argv.iter().any(|a| a.contains("%")));
+        let status = app
+            .open_command(&["/tmp/my project"], &[])
+            .unwrap()
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            "--new /tmp/my project\n"
+        );
+        assert!(
+            cat.get("plain")
+                .unwrap()
+                .open_command(&["/tmp"], &[])
+                .is_err()
+        );
     }
 
     #[test]
