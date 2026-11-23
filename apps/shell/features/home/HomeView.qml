@@ -19,7 +19,7 @@ Rectangle {
         opacity: Shell.homePage === "home" && !Shell.docked ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.duration } }
     }
-    DockPage {
+    DockView {
         anchors.fill: parent
         visible: opacity > 0
         opacity: Shell.homePage === "home" && Shell.docked ? 1 : 0

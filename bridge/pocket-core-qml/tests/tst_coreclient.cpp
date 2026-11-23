@@ -82,7 +82,7 @@ private slots:
         startCore();
         QTRY_COMPARE(client.status(), CoreClient::Connected);
         QCOMPARE(client.mode(), QStringLiteral("handheld"));
-        QCOMPARE(client.protocol(), QStringLiteral("1.3"));
+        QCOMPARE(client.protocol(), QStringLiteral("1.4"));
         QVERIFY(client.ready());
         QCOMPARE(client.connections(), 1);
         const QString firstOwner = client.owner();
@@ -291,6 +291,34 @@ private slots:
         QCOMPARE(notifications.summaries, QStringList{QStringLiteral("bridge test")});
         QVERIFY(dock.pendingActions().isEmpty());
 
+        // Core 1.4 (Stage 4): deck, privileges, live state from the agent, preferences.
+        QVERIFY(dock.platform());
+        QTRY_COMPARE(dock.deck().value(QStringLiteral("pages")).toList().size(), 3);
+        QCOMPARE(dock.deck().value(QStringLiteral("source")).toString(), QStringLiteral("default"));
+        bool lockAdvertised = false;
+        for (const QVariant &a : dock.actions()) {
+            const QVariantMap m = a.toMap();
+            if (m.value(QStringLiteral("id")).toString() == QStringLiteral("session.lock")) {
+                lockAdvertised = true;
+                QCOMPARE(m.value(QStringLiteral("privilege")).toString(), QStringLiteral("elevated"));
+                QVERIFY(!m.value(QStringLiteral("available")).toBool()); // not granted
+                QVERIFY(m.value(QStringLiteral("confirm")).toBool());
+            }
+        }
+        QVERIFY(lockAdvertised);
+        QTRY_VERIFY(dock.live().contains(QStringLiteral("notifications")));
+        QCOMPARE(dock.live().value(QStringLiteral("notifications")).toMap()
+                     .value(QStringLiteral("data")).toMap().value(QStringLiteral("forwarding")).toBool(), false);
+        QSignalSpy prefs(&dock, &DockClient::preferencesChanged);
+        dock.setPreference(QStringLiteral("dnd"), true);
+        QTRY_VERIFY(dock.preferences().value(QStringLiteral("dnd")).toBool());
+        dock.setPreference(QStringLiteral("dnd"), false);
+        QTRY_VERIFY(!dock.preferences().value(QStringLiteral("dnd")).toBool());
+        // Retry of a request with no unknown outcome: rejected by Core.
+        dock.retry(424242, QStringLiteral("desktop.notify"));
+        QTRY_COMPARE(finished.count(), 1);
+        QCOMPARE(finished.takeFirst().at(3).toString(), QStringLiteral("UnknownRequest"));
+
         // Unknown action: rejected by Core, never reaches the computer.
         dock.execute(QStringLiteral("no.such.action"));
         QTRY_COMPARE(finished.count(), 1);
@@ -302,6 +330,7 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("error"), 5000);
         QCOMPARE(dock.errorCode(), QStringLiteral("connection_closed"));
         QVERIFY(dock.actions().isEmpty());
+        QVERIFY2(dock.live().isEmpty(), "no stale laptop state after the session ended");
         agent.start(agentBin, {"run"});
         QVERIFY(agent.waitForStarted());
         QTRY_COMPARE_WITH_TIMEOUT(dock.state(), QStringLiteral("connected"), 10000);

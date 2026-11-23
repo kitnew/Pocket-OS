@@ -14,6 +14,8 @@
 #pragma once
 
 #include <QDeadlineTimer>
+#include <QElapsedTimer>
+#include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
@@ -55,6 +57,17 @@ class DockClient : public QObject {
     // action id -> request id, while Core has accepted a request and the computer has
     // not answered yet.
     Q_PROPERTY(QVariantMap pendingActions READ pendingActions NOTIFY pendingChanged)
+    // ── Core Dock 1.4 (Stage 4, docs/dock-mode/protocol.md) ──
+    // The validated Control Deck: {version, navigation, pages, source, error}; {} before 1.4.
+    Q_PROPERTY(QVariantMap deck READ deck NOTIFY deckChanged)
+    // Live laptop state per topic: {topic: {rev, available, reason, interval_ms, data, stale}}.
+    // Only topics of the current session; empty unless connected. A periodic topic gets
+    // stale=true when no update arrived within 3 x interval_ms.
+    Q_PROPERTY(QVariantMap live READ live NOTIFY liveChanged)
+    // Notification preferences: {dnd: bool, muted_apps: [string]}.
+    Q_PROPERTY(QVariantMap preferences READ preferences NOTIFY preferencesChanged)
+    // The connected core speaks contract >= 1.4.
+    Q_PROPERTY(bool platform READ platform NOTIFY changed)
 
 public:
     explicit DockClient(QObject *parent = nullptr);
@@ -80,12 +93,22 @@ public:
     Q_INVOKABLE int retryRemainingMs() const;
     QVariantList actions() const { return m_actions; }
     QVariantMap pendingActions() const { return m_pending; }
+    QVariantMap deck() const { return m_deck; }
+    QVariantMap live() const { return m_live; }
+    QVariantMap preferences() const { return m_prefs; }
+    bool platform() const { return m_supported && m_minor >= 4; }
 
     // Results: requestFailed(op, error) when Core rejects the call; state via changed().
     Q_INVOKABLE void connectHost();
     Q_INVOKABLE void disconnectHost();
     // Result: actionFinished(...) exactly once per call (request 0 if Core rejected it).
     Q_INVOKABLE void execute(const QString &actionId, const QVariantMap &params = {});
+    // Re-sends a request whose outcome is unknown (timeout / connection_lost) with the same
+    // key (Core Retry). Same reporting as execute(); `actionId` names it for pendingActions.
+    Q_INVOKABLE void retry(qulonglong request, const QString &actionId);
+    Q_INVOKABLE void reloadDeck();
+    // dnd (bool), mute_app / unmute_app (string). Result: preferencesChanged or requestFailed.
+    Q_INVOKABLE void setPreference(const QString &key, const QVariant &value);
 
 signals:
     void coreChanged();
@@ -97,12 +120,26 @@ signals:
     void requestFailed(const QString &op, const QString &error);
     void actionFinished(qulonglong request, const QString &action, bool ok, const QString &code,
                         const QString &message, const QString &data);
+    void deckChanged();
+    void liveChanged();
+    void preferencesChanged();
+    // Workflow progress of a pending request.
+    void actionProgress(qulonglong request, const QString &action, uint step, uint total,
+                        const QString &label);
+    // A laptop notification: {nid, app, summary, body, urgency, redacted, time_ms, silent}.
+    void notification(const QVariantMap &notification);
+    void notificationClosed(const QString &nid);
 
 private slots:
     void onStateChanged(const QVariantMap &state);
     void onActionsChanged();
     void onActionFinished(qulonglong request, const QString &action, bool ok, const QString &code,
                           const QString &message, const QString &data);
+    void onDeckChanged();
+    void onLiveChanged(const QString &topic, const QString &json);
+    void onActionProgress(qulonglong request, uint step, uint total, const QString &label);
+    void onNotification(const QString &json);
+    void onNotificationClosed(const QString &nid);
 
 private:
     void coreStatusChanged();
@@ -113,6 +150,10 @@ private:
     void call(const QString &method, const QString &op);
     void clearPending(const QString &code, const QString &message);
     void updateCountdown();
+    void fetchPlatform();
+    void setTopic(const QString &topic, const QVariantMap &value);
+    void checkStale();
+    void sendExecute(const QString &method, const QList<QVariant> &args, const QString &actionId);
 
     QPointer<CoreClient> m_core;
     QString m_subscribedBus;
@@ -127,4 +168,10 @@ private:
     int m_retrySeconds = 0;
     bool m_countdownActive = false;
     QTimer m_tick; // single shot, armed for the next whole second while counting down
+    int m_minor = 0;
+    QVariantMap m_deck;
+    QVariantMap m_live;
+    QVariantMap m_prefs;
+    QHash<QString, QDeadlineTimer> m_staleAt; // periodic topics: when they become stale
+    QTimer m_staleTimer;                       // single shot, armed for the earliest one
 };

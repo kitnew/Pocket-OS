@@ -197,8 +197,11 @@ echo "== 10d. computer away: Core and shell restarts during backoff, live countd
 systemctl --user stop "$unit"
 ctl ui display true >/dev/null
 wait_for "backoff reached the 8 s wait" 's["dock"]["state"]=="error" and s["dock"]["retryMs"]>5000' 25
-a="$(q 's["dock"]["retryMs"]')"; sleep 2; b="$(q 's["dock"]["retryMs"]')"
-[ $((a - b)) -ge 1500 ] && [ $((a - b)) -le 2700 ] && ok "countdown decreases with the clock ($a → $b ms in ~2 s)" || ko "countdown $a → $b ms"
+# Compare the countdown's decrease with the host time that really passed between the two
+# samples (each sample is an SSH + IPC round trip of a few hundred ms).
+t0=$(date +%s%3N); a="$(q 's["dock"]["retryMs"]')"; sleep 2; b="$(q 's["dock"]["retryMs"]')"; t1=$(date +%s%3N)
+d=$(( (a - b) - (t1 - t0) ))
+[ "${d#-}" -le 900 ] && ok "countdown decreases with the clock ($a → $b ms in $((t1 - t0)) ms)" || ko "countdown $a → $b ms in $((t1 - t0)) ms"
 check "shown seconds match the deadline (page visible, screen on)" 's["dock"]["countdown"] and abs(s["dock"]["retryShown"] - (s["dock"]["retryMs"]+999)//1000) <= 1'
 shot dock-countdown
 ctl restart core

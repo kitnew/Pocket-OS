@@ -4,10 +4,11 @@ import "../../components"
 import "../../state"
 import "../../theme"
 
-// Dock Mode control surface (landscape). Everything shown comes from Pocket Core's Dock
-// session (Shell.dock): connection state, the computer's identity, and the actions the
-// connected desktop agent advertises. Taps go through Core; a result is shown only
-// after the computer confirmed it. Works, and can be left, without any computer.
+// Dock "Link" view (the Stage 3 Dock page): connection state, the computer's identity,
+// errors and the retry countdown, Connect / Retry now / Disconnect, Back to Handheld, and
+// every action the agent advertises as a plain button (diagnostics; the Control Deck is the
+// configured surface). Everything comes from Pocket Core's Dock session (Shell.dock).
+// Works, and can be left, without any computer.
 Item {
     id: root
     readonly property var dock: Shell.dock
@@ -18,14 +19,6 @@ Item {
         : dock.state === "error" ? Theme.danger : Theme.textMuted
 
     function title(s) { return s.length ? s.charAt(0).toUpperCase() + s.slice(1) : "" }
-
-    // The live countdown ticks (once per second, in DockClient) only while this page is
-    // on a lit screen; the deadline itself is Core's.
-    Binding {
-        target: root.dock
-        property: "countdownActive"
-        value: root.visible && Shell.display.on
-    }
 
     // What to say when no actions can be shown.
     readonly property string message: {
@@ -62,7 +55,7 @@ Item {
                 Icon { anchors.verticalCenter: parent.verticalCenter; name: "dock" }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Pocket Dock"
+                    text: "Link"
                     color: Theme.text
                     font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold

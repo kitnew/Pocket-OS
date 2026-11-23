@@ -1,1 +1,2 @@
 singleton Shell Shell.qml
+DockNav DockNav.qml

@@ -64,6 +64,40 @@ ShellRoot {
             Shell.runDockAction(id)
             return "ok"
         }
+        // Stage 4 Dock UI (the same Shell functions the rail, tiles and sheets call).
+        //   nav home|deck|link | nav pin|unpin | nav page:ID | nav notifications|close|touch
+        function nav(cmd: string): string {
+            const op = cmd.split(":")[0]
+            const arg = cmd.slice(op.length + 1)
+            if (["home", "deck", "link"].includes(op)) Shell.dockNav.navigate(op)
+            else if (op === "pin") Shell.dockNav.setPinned(true)
+            else if (op === "unpin") Shell.dockNav.setPinned(false)
+            else if (op === "page") Shell.dockNav.selectPage(arg)
+            else if (op === "notifications") Shell.dockNav.openModal("notifications")
+            else if (op === "close") { Shell.cancelDockConfirm(); Shell.dockNav.closeModal() }
+            else if (op === "touch") Shell.dockNav.interact()
+            else return "unknown op"
+            return "ok"
+        }
+        // Taps a deck tile by its id ("page/index"), e.g. tile general/3.
+        function tile(id: string): string {
+            for (const p of (Shell.dock.deck.pages || []))
+                for (const t of p.tiles)
+                    if (t.id === id) {
+                        const r = Shell.tileResults[t.id]
+                        if (r && r.uncertain) Shell.retryDeckTile(t)
+                        else Shell.runDeckTile(t)
+                        return Shell.dockConfirm ? "confirm" : "ok"
+                    }
+            return "no such tile"
+        }
+        function confirm(accept: bool): string {
+            if (!Shell.dockConfirm) return "nothing to confirm"
+            if (accept) Shell.acceptDockConfirm()
+            else Shell.cancelDockConfirm()
+            return "ok"
+        }
+        function dnd(on: bool): void { Shell.dock.setPreference("dnd", on) }
         function state(): string {
             return JSON.stringify({
                 core: Shell.core.statusText, mode: Shell.core.mode, apps: Shell.apps.count,
@@ -87,7 +121,22 @@ ShellRoot {
                         retryMs: Shell.dock.retryRemainingMs(), retryShown: Shell.dock.retrySeconds,
                         countdown: Shell.dock.countdownActive, wanted: Shell.dock.connectionWanted,
                         actions: Shell.dock.actions.map(a => ({ id: a.id, available: a.available })),
-                        pending: Object.keys(Shell.dock.pendingActions), results: Shell.dockResults },
+                        pending: Object.keys(Shell.dock.pendingActions), results: Shell.dockResults,
+                        platform: Shell.dock.platform,
+                        nav: { view: Shell.dockNav.view, page: Shell.dockNav.page, pinned: Shell.dockNav.pinned,
+                               modal: Shell.dockNav.modal, idleMs: Shell.dockNav.idleTimeoutMs,
+                               dueInMs: Shell.dockNav.deadline < 0 ? -1 : Math.max(0, Math.round(Shell.dockNav.deadline - Date.now())) },
+                        deck: { source: Shell.dock.deck.source || "", error: Shell.dock.deck.error || "",
+                                pages: (Shell.dock.deck.pages || []).map(p => p.id) },
+                        tiles: Shell.tileResults, confirm: Shell.dockConfirm ? Shell.dockConfirm.label : "",
+                        live: Object.keys(Shell.dock.live).reduce((o, t) => {
+                            const v = Shell.dock.live[t]
+                            o[t] = { available: v.available, stale: v.stale, rev: v.rev, data: v.data }
+                            return o
+                        }, {}),
+                        prefs: Shell.dock.preferences,
+                        notifications: Shell.dockNotifications.count, banner: Shell.dockBanner ? Shell.dockBanner.nid : "",
+                        privileges: Shell.dock.actions.map(a => a.id + ":" + (a.privilege || "basic") + (a.available ? "" : "(off)")) },
                 toasts: Shell.toasts.count
             })
         }

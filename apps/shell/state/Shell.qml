@@ -39,9 +39,11 @@ QtObject {
         applyRotation()
         if (docked) {
             panel = ""
-            homePage = "home"   // the Dock page
+            homePage = "home"   // the Dock surface
             homeRequested = true
+            dockNav.reset()     // entering Dock Mode starts at Ambient Home, unpinned
         }
+        dockConfirm = null
     }
 
     function requestMode(mode) {
@@ -59,7 +61,153 @@ QtObject {
             shell.notify("Dock " + op + " failed: " + error.replace(/^[A-Za-z]+: /, ""), "error")
         }
         onActionFinished: (request, action, ok, code, message, data) => shell._dockFinished(request, action, ok, code, message, data)
+        onActionProgress: (request, action, step, total, label) => shell._dockProgress(request, action, step, total, label)
+        onDeckChanged: {
+            const nav = deck.navigation || {}
+            if (nav.idle_timeout_s !== undefined)
+                shell.dockNav.setIdleTimeout(nav.idle_timeout_s * 1000)
+            shell.diag("dock.deck", { source: deck.source || "-", pages: (deck.pages || []).length,
+                                      idle_s: nav.idle_timeout_s, error: JSON.stringify(deck.error || "") })
+            if (deck.error)
+                shell.notify("Deck configuration ignored: " + deck.error, "error")
+        }
+        onLiveChanged: shell.diag("dock.live", { topics: Object.keys(live).map(t => t + (live[t].available ? "" : "(off)") + (live[t].stale ? "(stale)" : "")).join(",") || "-" })
+        onNotification: (n) => shell._dockNotification(n)
+        onNotificationClosed: (nid) => shell._dockNotificationClosed(nid)
     }
+    // Never leave a confirmation open for a link that is gone (UX spec, navigation rule 8).
+    readonly property bool _dockLinkUp: dock.state === "connected"
+    on_DockLinkUpChanged: if (!_dockLinkUp && dockConfirm !== null) {
+        notify("Connection lost: " + dockConfirm.label + " was not sent", "error")
+        cancelDockConfirm()
+    }
+
+    // ── Dock navigation and Control Deck (UI-owned; docs/dock-mode/ux-specification.md) ──
+    readonly property DockNav dockNav: DockNav {
+        onChanged: (what) => shell.diag("dock.nav", { view: view, page: page || "-", pinned: pinned, why: what })
+    }
+    // The advertised action for an id, or null.
+    function dockAction(id) {
+        const list = dock.actions
+        for (let i = 0; i < list.length; ++i)
+            if (list[i].id === id)
+                return list[i]
+        return null
+    }
+    // Tile results, by tile id: { ok, code, text, time, request, uncertain, progress }.
+    property var tileResults: ({})
+    property var _tileByAction: ({})  // action id -> tile id that is waiting for it
+    // Open confirmation: { tile, retry (request id or 0), label, text } or null.
+    property var dockConfirm: null
+
+    function _setTileResult(tileId, r) {
+        const all = Object.assign({}, tileResults)
+        if (r === null)
+            delete all[tileId]
+        else
+            all[tileId] = r
+        tileResults = all
+    }
+    // A tap on a deck tile.
+    function runDeckTile(tile) {
+        const a = dockAction(tile.action)
+        diag("dock.tile", { tile: tile.id, action: tile.action, advertised: a !== null })
+        if (!a || !a.available || dock.pendingActions[tile.action] !== undefined)
+            return
+        if (a.confirm) {
+            dockConfirm = { tile: tile, retry: 0, label: tile.label,
+                            text: "Run “" + tile.label + "” on " + (dock.hostName || "the computer") + "?" }
+            dockNav.openModal("confirm")
+            return
+        }
+        _sendTile(tile, 0)
+    }
+    // "Outcome unknown" → Retry with the same request key (Core never retries by itself).
+    function retryDeckTile(tile) {
+        const r = tileResults[tile.id]
+        const a = dockAction(tile.action)
+        if (!r || !r.uncertain || !a || !a.available)
+            return
+        if (!a.idempotent || a.confirm) {
+            dockConfirm = { tile: tile, retry: r.request, label: tile.label,
+                            text: "“" + tile.label + "” may already have run on " + (dock.hostName || "the computer")
+                                  + ". Send it again? If it did run, the computer will not run it twice." }
+            dockNav.openModal("confirm")
+            return
+        }
+        _sendTile(tile, r.request)
+    }
+    function acceptDockConfirm() {
+        const c = dockConfirm
+        dockConfirm = null
+        dockNav.closeModal()
+        if (c)
+            _sendTile(c.tile, c.retry)
+    }
+    function cancelDockConfirm() {
+        dockConfirm = null
+        dockNav.closeModal()
+    }
+    function _sendTile(tile, retryRequest) {
+        const tiles = Object.assign({}, _tileByAction)
+        tiles[tile.action] = tile.id
+        _tileByAction = tiles
+        _setTileResult(tile.id, null)
+        if (retryRequest > 0) {
+            diag("dock.retry", { tile: tile.id, request: retryRequest })
+            dock.retry(retryRequest, tile.action)
+        } else {
+            dock.execute(tile.action, tile.params || {})
+        }
+    }
+    function _dockProgress(request, action, step, total, label) {
+        const tileId = _tileByAction[action]
+        diag("dock.action.progress", { request: request, id: action, step: step, total: total })
+        if (tileId)
+            _setTileResult(tileId, { ok: true, progress: true, text: "Step " + step + "/" + total + " · " + label,
+                                     time: "", request: request, uncertain: false })
+    }
+
+    // ── Laptop notifications (Stage 4.4) ──
+    // History: newest first, memory only (max 50). Banner: the latest non-silent one,
+    // shown only in Dock Mode. Content is never written to the diagnostic log.
+    readonly property ListModel dockNotifications: ListModel {}
+    property var dockBanner: null
+    function _dockNotification(n) {
+        diag("dock.notification", { nid: n.nid, silent: !!n.silent, redacted: !!n.redacted })
+        dockNotifications.insert(0, { nid: n.nid, app: n.app || "", summary: n.summary || "", body: n.body || "",
+                                      redacted: !!n.redacted, urgency: n.urgency || 1,
+                                      time: Qt.formatTime(new Date(), "HH:mm") })
+        while (dockNotifications.count > 50)
+            dockNotifications.remove(dockNotifications.count - 1)
+        if (!n.silent && docked) {
+            dockBanner = n
+            if (n.urgency === 2)
+                _bannerTimer.stop()   // critical: stays until tapped
+            else
+                _bannerTimer.restart()
+        }
+    }
+    function _dockNotificationClosed(nid) {
+        for (let i = dockNotifications.count - 1; i >= 0; --i)
+            if (dockNotifications.get(i).nid === nid)
+                dockNotifications.remove(i)
+        if (dockBanner && dockBanner.nid === nid)
+            dismissDockBanner()
+    }
+    function dismissDockBanner() {
+        dockBanner = null
+        _bannerTimer.stop()
+    }
+    function clearDockNotifications() {
+        dockNotifications.clear()
+        dismissDockBanner()
+    }
+    readonly property Timer _bannerTimer: Timer {
+        interval: 6000
+        onTriggered: shell.dockBanner = null
+    }
+
     property string _dockLogged: ""
     function _dockChanged() {
         const line = [dock.supported, dock.state, dock.hostName, dock.errorCode, dock.retryIn, dock.connectionWanted].join()
@@ -94,7 +242,14 @@ QtObject {
     // Last outcome per action id: { ok, text, time }. UI-owned, reset by a shell restart.
     property var dockResults: ({})
     function _dockFinished(request, action, ok, code, message, data) {
+        const uncertain = !ok && (code === "timeout" || code === "connection_lost")
         let text = ok ? "Done on " + (dock.hostName || "computer") : (message || code)
+        if (ok && message === "duplicate")
+            text = "Already done on " + (dock.hostName || "computer")
+        else if (uncertain)
+            text = "Outcome unknown"
+        else if (!ok && code === "core_lost")
+            text = "Pocket Core restarted; check the computer"
         if (ok && action === "desktop.notify")
             text = "Notification shown on " + (dock.hostName || "computer")
         else if (ok && action === "media.play_pause") {
@@ -103,9 +258,18 @@ QtObject {
         const r = Object.assign({}, dockResults)
         r[action] = { ok: ok, code: code, text: text, time: Qt.formatTime(new Date(), "HH:mm:ss") }
         dockResults = r
+        const tileId = _tileByAction[action]
+        if (tileId !== undefined) {
+            const tiles = Object.assign({}, _tileByAction)
+            delete tiles[action]
+            _tileByAction = tiles
+            _setTileResult(tileId, { ok: ok, code: code, text: text, request: request, uncertain: uncertain,
+                                     progress: false, time: Qt.formatTime(new Date(), "HH:mm") })
+        }
         diag("dock.action.finished", { request: request, id: action, ok: ok, code: code || "-",
                                        message: JSON.stringify(message), data: data || "-" })
-        if (!ok)
+        // Tiles show their own result; only untargeted requests (IPC, Link view) toast.
+        if (!ok && tileId === undefined)
             notify(dock.hostName ? action + " on " + dock.hostName + ": " + text : text, "error")
     }
 
@@ -180,6 +344,8 @@ QtObject {
         osk.setVisible(false) // the launcher's search field shows it again on focus
         homePage = "home"
         homeRequested = true
+        if (docked)
+            dockNav.navigate("home")
         diag("nav.home", { windows: windowCount })
     }
     function showPage(page) {

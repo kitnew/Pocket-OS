@@ -1,6 +1,6 @@
 #!/bin/sh
 # Local checks: Rust format/lint/tests (incl. the D-Bus contract test on a private bus),
-# shell-script syntax/lint, Python.
+# shell-script syntax/lint, Python, shell logic (node).
 #   scripts/check.sh            host only
 #   scripts/check.sh --device   + qmllint on the device and the device integration tests
 #                               (deploys user files first; needs scripts/build.sh)
@@ -18,6 +18,11 @@ if command -v shellcheck >/dev/null; then
 	shellcheck -S warning scripts/*.sh scripts/device/* tests/device/*.sh
 fi
 echo "== python"; python3 -m py_compile scripts/host-proxy.py scripts/soak-report.py
+if command -v node >/dev/null; then
+	echo "== node (shell logic)"; node --test tests/shell/*.test.mjs
+else
+	echo "== node not installed: shell logic tests skipped" >&2
+fi
 if [ "${1:-}" = "--device" ]; then
 	echo "== qmllint (device)"
 	"$root/scripts/deploy.sh" >/dev/null
