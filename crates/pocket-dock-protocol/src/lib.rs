@@ -24,8 +24,10 @@ use std::time::Duration;
 pub use message::Version;
 
 /// Version of this protocol. Majors must match; minors only add (unknown message types
-/// and fields are ignored by both sides).
-pub const PROTOCOL: Version = Version { major: 1, minor: 0 };
+/// and fields are ignored by both sides). 1.1 (Stage 4): action privilege/idempotent/
+/// confirm and parameter choices/bounds, request keys and duplicate results, workflow
+/// progress, live state topics, notifications (docs/dock-mode/protocol.md).
+pub const PROTOCOL: Version = Version { major: 1, minor: 1 };
 
 /// Noise protocol name. Changing it is a new protocol major.
 pub const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
@@ -75,6 +77,27 @@ pub mod error_code {
     pub const INVALID_PARAMS: &str = "invalid_params";
     /// The action ran and failed on the desktop.
     pub const FAILED: &str = "failed";
+}
+
+/// Live state topics (protocol 1.1).
+pub mod topic {
+    /// `{locked, battery: {percent, charging}}`
+    pub const HOST: &str = "host";
+    /// `{active, players: [...]}` (MPRIS)
+    pub const MEDIA: &str = "media";
+    /// `{cpu_percent, mem_percent}`, sampled
+    pub const SYSTEM: &str = "system";
+    /// `{forwarding, reason}`; notifications themselves are separate messages
+    pub const NOTIFICATIONS: &str = "notifications";
+    pub const ALL: [&str; 4] = [HOST, MEDIA, SYSTEM, NOTIFICATIONS];
+}
+
+/// Request keys (`invoke.key`): 1–64 characters of `A-Z a-z 0-9 _ -`.
+pub fn is_valid_request_key(key: &str) -> bool {
+    (1..=64).contains(&key.len())
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Action ids are stable, lowercase, dot-separated identifiers such as

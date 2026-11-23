@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use pocket_desktop_agent::actions::{Action, ActionFuture, Changes, Params, Registry};
+use pocket_desktop_agent::actions::{Action, ActionFuture, Changes, Desktop, Params, Registry};
+use pocket_desktop_agent::mpris::Mpris;
 use pocket_desktop_agent::server::Server;
 use pocket_dock_protocol::channel::{self, Established};
 use pocket_dock_protocol::keys::Identity;
@@ -28,20 +29,18 @@ impl Action for TestAction {
     fn info(&self) -> ActionInfo {
         let available = self.available.load(Ordering::SeqCst);
         ActionInfo {
-            id: self.id.into(),
-            label: self.id.into(),
-            category: "test".into(),
             available,
             reason: if available {
                 String::new()
             } else {
                 "switched off".into()
             },
-            params: vec![pocket_dock_protocol::message::ParamInfo {
-                name: "text".into(),
-                kind: pocket_dock_protocol::message::ParamKind::String,
-                required: false,
-            }],
+            params: vec![pocket_dock_protocol::message::ParamInfo::new(
+                "text",
+                pocket_dock_protocol::message::ParamKind::String,
+                false,
+            )],
+            ..ActionInfo::new(self.id, self.id, "test")
         }
     }
     fn execute<'a>(&'a self, params: &'a Params) -> ActionFuture<'a> {
@@ -62,6 +61,8 @@ struct Agent {
     key: pocket_dock_protocol::keys::PublicKey,
     toggle: Arc<AtomicBool>,
     changes: Changes,
+    live: pocket_desktop_agent::live::Live,
+    notes: tokio::sync::broadcast::Sender<AgentMessage>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -103,6 +104,7 @@ async fn agent_with(
         Arc::new(reg),
     );
     tune(&mut server);
+    let (live, notes) = (server.live.clone(), server.notifications.clone());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {
@@ -113,6 +115,8 @@ async fn agent_with(
         key,
         toggle,
         changes,
+        live,
+        notes,
         task,
     }
 }
@@ -166,17 +170,28 @@ async fn session(a: &Agent, phone: &Identity) -> (Conn, Vec<ActionInfo>) {
 }
 
 async fn invoke(c: &mut Conn, id: u64, action: &str, params: Value) -> AgentMessage {
+    invoke_key(c, id, action, params, None).await
+}
+
+async fn invoke_key(
+    c: &mut Conn,
+    id: u64,
+    action: &str,
+    params: Value,
+    key: Option<&str>,
+) -> AgentMessage {
     c.sender
         .send(&ClientMessage::Invoke {
             id,
             action: action.into(),
             params: params.as_object().unwrap().clone(),
+            key: key.map(str::to_owned),
         })
         .await
         .unwrap();
     loop {
         match recv(c).await.unwrap() {
-            AgentMessage::Actions { .. } => continue,
+            AgentMessage::Actions { .. } | AgentMessage::Progress { .. } => continue,
             m => return m,
         }
     }
@@ -219,6 +234,7 @@ async fn untrusted_phone_is_rejected_before_any_action() {
             id: 1,
             action: "test.echo".into(),
             params: Default::default(),
+            key: None,
         })
         .await;
     assert!(recv(&mut c).await.is_none(), "connection must be closed");
@@ -272,7 +288,8 @@ async fn actions_execute_and_errors_are_structured() {
             id: 1,
             ok: true,
             data: json!({"text": "hi"}),
-            error: None
+            error: None,
+            duplicate: false,
         }
     );
     for (id, action, params, code) in [
@@ -436,7 +453,8 @@ async fn desktop_notify_calls_the_notification_service() {
         .unwrap();
 
     let mut reg = Registry::new();
-    pocket_desktop_agent::actions::builtin(&mut reg, Some(client));
+    let mpris = Mpris::start(client.clone(), Some(reg.changes()));
+    pocket_desktop_agent::actions::builtin(&mut reg, desktop(Some(client), Some(mpris)));
     let p = |v: Value| v.as_object().unwrap().clone();
     let r = reg
         .invoke(
@@ -499,8 +517,8 @@ async fn media_play_pause_follows_players_on_the_bus() {
         .await
         .unwrap();
     let mut reg = Registry::new();
-    pocket_desktop_agent::actions::builtin(&mut reg, Some(client));
-    let mut changed = reg.subscribe();
+    let mpris = Mpris::start(client.clone(), Some(reg.changes()));
+    pocket_desktop_agent::actions::builtin(&mut reg, desktop(Some(client), Some(mpris.clone())));
     let available = |reg: &Registry| {
         reg.list()
             .into_iter()
@@ -508,7 +526,7 @@ async fn media_play_pause_follows_players_on_the_bus() {
             .unwrap()
             .available
     };
-    timeout(WAIT, changed.changed()).await.unwrap().unwrap(); // initial listing
+    tokio::time::sleep(Duration::from_millis(200)).await; // initial listing
     assert!(!available(&reg));
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -518,8 +536,7 @@ async fn media_play_pause_follows_players_on_the_bus() {
         .build()
         .await
         .unwrap();
-    timeout(WAIT, changed.changed()).await.unwrap().unwrap();
-    assert!(available(&reg));
+    until(|| available(&reg)).await;
     let r = reg
         .invoke("media.play_pause", &Default::default())
         .await
@@ -528,6 +545,731 @@ async fn media_play_pause_follows_players_on_the_bus() {
     timeout(WAIT, rx.recv()).await.unwrap().unwrap();
 
     drop(player);
-    timeout(WAIT, changed.changed()).await.unwrap().unwrap();
-    assert!(!available(&reg));
+    until(|| !available(&reg)).await;
+    assert_eq!(mpris.player_count(), 0);
+}
+
+// ── Stage 4: helpers ──────────────────────────────────────────────────────────────────
+
+fn desktop(bus: Option<zbus::Connection>, mpris: Option<Mpris>) -> Desktop {
+    Desktop {
+        bus,
+        mpris,
+        apps: Vec::new(),
+    }
+}
+
+/// Waits (up to WAIT) until `f` holds.
+async fn until(f: impl Fn() -> bool) {
+    let start = std::time::Instant::now();
+    while !f() {
+        assert!(start.elapsed() < WAIT, "condition not reached in time");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Counts executions; `delay_ms` makes it slow; elevated when `elevated`.
+struct Counted {
+    id: &'static str,
+    runs: Arc<std::sync::atomic::AtomicU32>,
+    delay_ms: u64,
+    elevated: bool,
+}
+
+impl Action for Counted {
+    fn info(&self) -> ActionInfo {
+        ActionInfo {
+            privilege: if self.elevated {
+                pocket_dock_protocol::message::Privilege::Elevated
+            } else {
+                pocket_dock_protocol::message::Privilege::Basic
+            },
+            ..ActionInfo::new(self.id, self.id, "test")
+        }
+    }
+    fn execute<'a>(&'a self, _params: &'a Params) -> ActionFuture<'a> {
+        let n = self.runs.fetch_add(1, Ordering::SeqCst) + 1;
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            Ok(json!({ "run": n }))
+        })
+    }
+}
+
+fn counted(
+    id: &'static str,
+    delay_ms: u64,
+    elevated: bool,
+) -> (Counted, Arc<std::sync::atomic::AtomicU32>) {
+    let runs = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    (
+        Counted {
+            id,
+            runs: runs.clone(),
+            delay_ms,
+            elevated,
+        },
+        runs,
+    )
+}
+
+// ── Stage 4: authorization, request keys, progress ───────────────────────────────────
+
+#[tokio::test]
+async fn elevated_actions_need_a_grant_over_the_wire() {
+    let phone = Identity::generate().unwrap();
+    let (act, runs) = counted("test.elevated", 0, true);
+    let a = agent(&phone, move |r| r.register(act)).await;
+    let (mut c, actions) = session(&a, &phone).await;
+    let info = actions.iter().find(|x| x.id == "test.elevated").unwrap();
+    assert!(!info.available && info.reason.contains("grant"), "{info:?}");
+    assert_eq!(
+        serde_json::to_value(info).unwrap()["privilege"],
+        "elevated",
+        "the phone sees the privilege class"
+    );
+    let m = invoke(&mut c, 1, "test.elevated", json!({})).await;
+    assert_eq!(error_code_of(&m), error_code::NOT_PERMITTED);
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
+
+    let (act, runs) = counted("test.elevated", 0, true);
+    let a = agent(&phone, move |r| {
+        r.register(act);
+        r.set_grants(["test.elevated".to_owned()]);
+    })
+    .await;
+    let (mut c, _) = session(&a, &phone).await;
+    let m = invoke(&mut c, 1, "test.elevated", json!({})).await;
+    assert!(matches!(m, AgentMessage::Result { ok: true, .. }), "{m:?}");
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_repeated_request_key_returns_the_stored_result_across_sessions() {
+    let phone = Identity::generate().unwrap();
+    let (act, runs) = counted("test.count", 0, false);
+    let a = agent(&phone, move |r| r.register(act)).await;
+    let (mut c, _) = session(&a, &phone).await;
+    let m = invoke_key(&mut c, 1, "test.count", json!({}), Some("key-1")).await;
+    assert_eq!(
+        m,
+        AgentMessage::Result {
+            id: 1,
+            ok: true,
+            data: json!({"run": 1}),
+            error: None,
+            duplicate: false
+        }
+    );
+    drop(c); // the connection is lost; the phone does not know whether it ran
+
+    let (mut c, _) = session(&a, &phone).await;
+    let m = invoke_key(&mut c, 7, "test.count", json!({}), Some("key-1")).await;
+    assert_eq!(
+        m,
+        AgentMessage::Result {
+            id: 7,
+            ok: true,
+            data: json!({"run": 1}),
+            error: None,
+            duplicate: true
+        },
+        "same key: the stored result, under the new request id"
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "executed exactly once");
+
+    // Another key (a new intent) runs again; no key never de-duplicates.
+    let m = invoke_key(&mut c, 8, "test.count", json!({}), Some("key-2")).await;
+    assert!(matches!(
+        m,
+        AgentMessage::Result {
+            duplicate: false,
+            ..
+        }
+    ));
+    invoke(&mut c, 9, "test.count", json!({})).await;
+    invoke(&mut c, 10, "test.count", json!({})).await;
+    assert_eq!(runs.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn a_retry_racing_the_original_waits_for_it() {
+    let phone = Identity::generate().unwrap();
+    let (act, runs) = counted("test.slow", 1500, false);
+    let a = agent(&phone, move |r| r.register(act)).await;
+    let (mut c1, _) = session(&a, &phone).await;
+    let sent = std::time::Instant::now();
+    c1.sender
+        .send(&ClientMessage::Invoke {
+            id: 1,
+            action: "test.slow".into(),
+            params: Default::default(),
+            key: Some("race".into()),
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The phone reconnects (replacing the session) and retries while the original runs.
+    let (mut c2, _) = session(&a, &phone).await;
+    assert!(
+        sent.elapsed() < Duration::from_millis(1500),
+        "the retry must race the original"
+    );
+    let m = invoke_key(&mut c2, 2, "test.slow", json!({}), Some("race")).await;
+    assert_eq!(
+        m,
+        AgentMessage::Result {
+            id: 2,
+            ok: true,
+            data: json!({"run": 1}),
+            error: None,
+            duplicate: true
+        }
+    );
+    assert!(
+        sent.elapsed() >= Duration::from_millis(1500),
+        "it waited for the original to finish"
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn workflow_progress_arrives_before_the_result() {
+    let phone = Identity::generate().unwrap();
+    let a = agent(&phone, |r| {
+        r.set_grants(["workflow.run".to_owned()]);
+        r.set_workflows(vec![pocket_desktop_agent::config::WorkflowConfig {
+            id: "two".into(),
+            label: "Two".into(),
+            steps: vec![
+                pocket_desktop_agent::config::WorkflowStep {
+                    action: "test.echo".into(),
+                    params: Default::default(),
+                },
+                pocket_desktop_agent::config::WorkflowStep {
+                    action: "test.toggle".into(),
+                    params: Default::default(),
+                },
+            ],
+        }]);
+    })
+    .await;
+    let (mut c, actions) = session(&a, &phone).await;
+    assert!(
+        actions
+            .iter()
+            .any(|x| x.id == "workflow.run" && x.available)
+    );
+    c.sender
+        .send(&ClientMessage::Invoke {
+            id: 5,
+            action: "workflow.run".into(),
+            params: json!({"workflow": "two"}).as_object().unwrap().clone(),
+            key: None,
+        })
+        .await
+        .unwrap();
+    let mut seen = Vec::new();
+    loop {
+        match recv(&mut c).await.unwrap() {
+            AgentMessage::Progress {
+                id, step, total, ..
+            } => seen.push((id, step, total)),
+            AgentMessage::Result { id, ok, .. } => {
+                assert_eq!((id, ok), (5, true));
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(seen, [(5, 1, 2), (5, 2, 2)]);
+    // A workflow the laptop does not define is refused.
+    let m = invoke(&mut c, 6, "workflow.run", json!({"workflow": "rm-rf"})).await;
+    assert_eq!(error_code_of(&m), error_code::NOT_PERMITTED);
+}
+
+// ── Stage 4: live state and notifications ─────────────────────────────────────────────
+
+async fn next_state(c: &mut Conn) -> (String, u64, bool, Value) {
+    loop {
+        if let AgentMessage::State {
+            topic,
+            rev,
+            available,
+            data,
+            ..
+        } = recv(c).await.unwrap()
+        {
+            return (topic, rev, available, data);
+        }
+    }
+}
+
+#[tokio::test]
+async fn subscribe_gets_snapshots_then_coalesced_updates() {
+    let phone = Identity::generate().unwrap();
+    let a = agent(&phone, |_| {}).await;
+    a.live.set("media", true, "", 0, json!({"active": "x"}));
+    let (mut c, _) = session(&a, &phone).await;
+    c.sender
+        .send(&ClientMessage::Subscribe {
+            topics: vec!["media".into(), "host".into(), "bogus".into()],
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        next_state(&mut c).await,
+        ("media".into(), 1, true, json!({"active": "x"}))
+    );
+    let (t, rev, available, _) = next_state(&mut c).await;
+    assert_eq!(
+        (t.as_str(), rev, available),
+        ("host", 0, false),
+        "unknown here: unavailable"
+    );
+
+    // Two quick changes arrive as one update with the latest value.
+    a.live.set("media", true, "", 0, json!({"active": "y"}));
+    a.live.set("media", true, "", 0, json!({"active": "z"}));
+    assert_eq!(
+        next_state(&mut c).await,
+        ("media".into(), 3, true, json!({"active": "z"}))
+    );
+    // An unchanged value sends nothing; a later change does.
+    a.live.set("media", true, "", 0, json!({"active": "z"}));
+    a.live.set("host", true, "", 0, json!({"locked": false}));
+    assert_eq!(next_state(&mut c).await.0, "host");
+}
+
+#[tokio::test]
+async fn notifications_reach_only_subscribed_sessions() {
+    let phone = Identity::generate().unwrap();
+    let a = agent(&phone, |_| {}).await;
+    let (mut c, _) = session(&a, &phone).await;
+    c.sender
+        .send(&ClientMessage::Subscribe {
+            topics: vec!["notifications".into()],
+        })
+        .await
+        .unwrap();
+    next_state(&mut c).await; // the policy topic snapshot
+    let note = pocket_dock_protocol::message::Notification {
+        nid: "n1".into(),
+        app: "Mail".into(),
+        summary: "Hi".into(),
+        body: String::new(),
+        urgency: 1,
+        redacted: true,
+        time_ms: 1,
+    };
+    // The subscription is active once the snapshot was sent.
+    a.notes
+        .send(AgentMessage::Notification(note.clone()))
+        .unwrap();
+    loop {
+        match recv(&mut c).await.unwrap() {
+            AgentMessage::Notification(n) => {
+                assert_eq!(n, note);
+                break;
+            }
+            AgentMessage::State { .. } => continue,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+// ── Stage 4: desktop integrations against fake services ──────────────────────────────
+
+struct FakeAccel {
+    names: Vec<String>,
+    invoked: tokio::sync::mpsc::UnboundedSender<String>,
+}
+
+#[zbus::interface(name = "org.kde.kglobalaccel.Component")]
+impl FakeAccel {
+    #[zbus(name = "shortcutNames")]
+    fn shortcut_names(&self) -> Vec<String> {
+        self.names.clone()
+    }
+    #[zbus(name = "invokeShortcut")]
+    fn invoke_shortcut(&self, name: &str) {
+        let _ = self.invoked.send(name.to_owned());
+    }
+}
+
+struct FakeScreenSaver {
+    locked: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+#[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+impl FakeScreenSaver {
+    fn lock(&self) {
+        let _ = self.locked.send(());
+    }
+    fn get_active(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test]
+async fn kde_shortcuts_volume_and_lock_use_named_desktop_actions() {
+    let bus = private_bus();
+    let client = zbus::connection::Builder::address(bus.1.as_str())
+        .build()
+        .await
+        .unwrap();
+    let mut reg = Registry::new();
+    pocket_desktop_agent::actions::builtin(&mut reg, desktop(Some(client.clone()), None));
+    let find = |reg: &Registry, id: &str| reg.list().into_iter().find(|a| a.id == id).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // No KDE on this bus: unavailable, with a reason.
+    assert!(!find(&reg, "volume.up").available);
+    reg.set_grants(["desktop.shortcut".to_owned(), "session.lock".to_owned()]);
+    assert!(!find(&reg, "desktop.shortcut").available);
+
+    let (tx, mut invoked) = tokio::sync::mpsc::unbounded_channel();
+    let (ltx, mut locked) = tokio::sync::mpsc::unbounded_channel();
+    let kmix = ["increase_volume", "decrease_volume", "mute"]
+        .map(String::from)
+        .to_vec();
+    let kwin = [
+        "Overview",
+        "Show Desktop",
+        "Switch to Next Desktop",
+        "Switch to Previous Desktop",
+        "Grid View",
+    ]
+    .map(String::from)
+    .to_vec();
+    let _kde = zbus::connection::Builder::address(bus.1.as_str())
+        .name("org.kde.kglobalaccel")
+        .serve_at(
+            "/component/kmix",
+            FakeAccel {
+                names: kmix,
+                invoked: tx.clone(),
+            },
+        )
+        .serve_at(
+            "/component/kwin",
+            FakeAccel {
+                names: kwin,
+                invoked: tx,
+            },
+        )
+        .build()
+        .await
+        .unwrap();
+    let _screensaver = zbus::connection::Builder::address(bus.1.as_str())
+        .name("org.freedesktop.ScreenSaver")
+        .serve_at(
+            "/org/freedesktop/ScreenSaver",
+            FakeScreenSaver { locked: ltx },
+        )
+        .build()
+        .await
+        .unwrap();
+    until(|| find(&reg, "volume.up").available).await;
+    let p = |v: Value| v.as_object().unwrap().clone();
+    reg.invoke("volume.up", &p(json!({}))).await.unwrap();
+    assert_eq!(
+        timeout(WAIT, invoked.recv()).await.unwrap().unwrap(),
+        "increase_volume"
+    );
+
+    let sc = find(&reg, "desktop.shortcut");
+    assert!(sc.available);
+    let choices: Vec<_> = sc.params[0]
+        .choices
+        .iter()
+        .map(|c| c.value.as_str())
+        .collect();
+    assert!(choices.contains(&"overview") && choices.contains(&"desktop_next"));
+    reg.invoke("desktop.shortcut", &p(json!({"shortcut": "desktop_next"})))
+        .await
+        .unwrap();
+    assert_eq!(
+        timeout(WAIT, invoked.recv()).await.unwrap().unwrap(),
+        "Switch to Next Desktop"
+    );
+    let e = reg
+        .invoke("desktop.shortcut", &p(json!({"shortcut": "Window Close"})))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::NOT_PERMITTED, "only approved shortcuts");
+
+    let lock = find(&reg, "session.lock");
+    assert!(lock.confirm && lock.idempotent);
+    reg.invoke("session.lock", &p(json!({}))).await.unwrap();
+    timeout(WAIT, locked.recv()).await.unwrap().unwrap();
+}
+
+// A richer MPRIS player: metadata and PropertiesChanged.
+struct RichPlayer {
+    status: String,
+    title: String,
+}
+
+#[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
+impl RichPlayer {
+    #[zbus(property)]
+    fn playback_status(&self) -> String {
+        self.status.clone()
+    }
+    #[zbus(property)]
+    fn metadata(&self) -> std::collections::HashMap<String, zbus::OwnedVariant> {
+        let mut m = std::collections::HashMap::new();
+        m.insert(
+            "xesam:title".to_owned(),
+            zbus::Variant::from(self.title.clone()).try_into().unwrap(),
+        );
+        m.insert(
+            "xesam:artist".to_owned(),
+            zbus::Variant::from(vec!["Artist".to_owned()])
+                .try_into()
+                .unwrap(),
+        );
+        m
+    }
+    #[zbus(property)]
+    fn can_go_next(&self) -> bool {
+        true
+    }
+}
+
+struct Root;
+#[zbus::interface(name = "org.mpris.MediaPlayer2")]
+impl Root {
+    #[zbus(property)]
+    fn identity(&self) -> String {
+        "Rich Player".into()
+    }
+}
+
+#[tokio::test]
+async fn media_state_follows_player_properties() {
+    let bus = private_bus();
+    let client = zbus::connection::Builder::address(bus.1.as_str())
+        .build()
+        .await
+        .unwrap();
+    let mpris = Mpris::start(client, None);
+    let player = zbus::connection::Builder::address(bus.1.as_str())
+        .name("org.mpris.MediaPlayer2.rich")
+        .serve_at(
+            "/org/mpris/MediaPlayer2",
+            RichPlayer {
+                status: "Paused".into(),
+                title: "One".into(),
+            },
+        )
+        .serve_at("/org/mpris/MediaPlayer2", Root)
+        .build()
+        .await
+        .unwrap();
+    until(|| {
+        mpris.snapshot()["players"]
+            .as_array()
+            .is_some_and(|p| !p.is_empty())
+    })
+    .await;
+    let s = mpris.snapshot();
+    assert_eq!(s["active"], "rich");
+    assert_eq!(s["players"][0]["title"], "One");
+    assert_eq!(s["players"][0]["artist"], "Artist");
+    assert_eq!(s["players"][0]["identity"], "Rich Player");
+    assert_eq!(s["players"][0]["can_next"], true);
+
+    // The player starts playing a new track and says so with PropertiesChanged.
+    let iface = player
+        .object_server()
+        .interface::<_, RichPlayer>("/org/mpris/MediaPlayer2")
+        .await
+        .unwrap();
+    {
+        let mut p = iface.get_mut().await;
+        p.status = "Playing".into();
+        p.title = "Two".into();
+        p.playback_status_changed(iface.signal_emitter())
+            .await
+            .unwrap();
+    }
+    until(|| mpris.snapshot()["players"][0]["title"] == "Two").await;
+    assert_eq!(mpris.snapshot()["players"][0]["status"], "Playing");
+}
+
+// The notification monitor against a fake notification server on a private bus.
+struct FakeServer;
+
+#[zbus::interface(name = "org.freedesktop.Notifications")]
+impl FakeServer {
+    #[allow(clippy::too_many_arguments)]
+    fn notify(
+        &self,
+        _app: &str,
+        _replaces: u32,
+        _icon: &str,
+        _summary: &str,
+        _body: &str,
+        _actions: Vec<String>,
+        _hints: std::collections::HashMap<String, zbus::OwnedVariant>,
+        _timeout: i32,
+    ) -> u32 {
+        77
+    }
+    #[zbus(signal)]
+    async fn notification_closed(
+        e: &zbus::object_server::SignalEmitter<'_>,
+        id: u32,
+        reason: u32,
+    ) -> zbus::Result<()>;
+}
+
+#[tokio::test]
+async fn the_monitor_forwards_notifications_by_policy_and_reports_closing() {
+    let bus = private_bus();
+    let server = zbus::connection::Builder::address(bus.1.as_str())
+        .name("org.freedesktop.Notifications")
+        .serve_at("/org/freedesktop/Notifications", FakeServer)
+        .build()
+        .await
+        .unwrap();
+    let live = pocket_desktop_agent::live::Live::new();
+    live.set("host", true, "", 0, json!({"locked": false}));
+    let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+    let policy = pocket_desktop_agent::notifications::Policy(
+        pocket_desktop_agent::config::NotificationPolicy {
+            forward: true,
+            deny_apps: vec!["Noisy".into()],
+            ..Default::default()
+        },
+    );
+    pocket_desktop_agent::notifications::start_on(Some(bus.1.clone()), policy, live.clone(), tx);
+    until(|| live.data("notifications")["forwarding"] == true).await;
+
+    let app = zbus::connection::Builder::address(bus.1.as_str())
+        .build()
+        .await
+        .unwrap();
+    let send = |name: &'static str, body: &'static str| {
+        let app = app.clone();
+        async move {
+            app.call_method(
+                Some("org.freedesktop.Notifications"),
+                "/org/freedesktop/Notifications",
+                Some("org.freedesktop.Notifications"),
+                "Notify",
+                &(
+                    name,
+                    0u32,
+                    "",
+                    "Subject",
+                    body,
+                    Vec::<&str>::new(),
+                    std::collections::HashMap::<&str, zbus::Variant<'_>>::new(),
+                    -1i32,
+                ),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    send("Noisy", "ignored").await;
+    send("Pocket OS", "our own echo").await;
+    send("Mail", "<b>hello</b>").await;
+    let n = match timeout(WAIT, rx.recv()).await.unwrap().unwrap() {
+        AgentMessage::Notification(n) => n,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        (n.nid.as_str(), n.app.as_str(), n.body.as_str()),
+        ("n77", "Mail", "hello")
+    );
+
+    let e =
+        zbus::object_server::SignalEmitter::new(&server, "/org/freedesktop/Notifications").unwrap();
+    FakeServer::notification_closed(&e, 77, 2).await.unwrap();
+    match timeout(WAIT, rx.recv()).await.unwrap().unwrap() {
+        AgentMessage::NotificationClosed { nid } => assert_eq!(nid, "n77"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// ── app.launch against a private desktop-entry catalog ───────────────────────────────
+
+#[tokio::test]
+async fn app_launch_starts_only_registered_installed_apps_without_a_shell() {
+    use pocket_desktop_agent::actions::apps::AppLaunch;
+    use pocket_platform::apps::{Catalog, ScanOptions};
+    let dir = std::env::temp_dir().join(format!("pocket-agent-apps-{}", std::process::id()));
+    let apps = dir.join("applications");
+    std::fs::create_dir_all(&apps).unwrap();
+    // Exec runs `touch <dir>/a;b`: with no shell, `a;b` is one literal file name (a shell
+    // would split it into a command `touch <dir>/a` and a command `b`).
+    let marker = dir.join("a;b");
+    std::fs::write(
+        apps.join("test.app.desktop"),
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Test App\nExec=touch \"{}\"\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        apps.join("other.app.desktop"),
+        "[Desktop Entry]\nType=Application\nName=Other\nExec=true\n",
+    )
+    .unwrap();
+    let opts = ScanOptions {
+        dirs: vec![apps.clone()],
+        desktops: vec![],
+        locales: vec![],
+        path: std::env::split_paths(&std::env::var_os("PATH").unwrap()).collect(),
+        resolve_icons: false,
+        icon_theme: String::new(),
+    };
+    let catalog = Catalog::scan(&opts).0;
+    assert!(catalog.get("test.app").is_some(), "test entry is valid");
+
+    let mut reg = Registry::new();
+    let changes = reg.changes();
+    reg.register(AppLaunch::with_catalog(
+        vec!["test.app".into(), "missing.app".into()],
+        catalog,
+        changes,
+    ));
+    let info = reg
+        .list()
+        .into_iter()
+        .find(|a| a.id == "app.launch")
+        .unwrap();
+    assert!(!info.available, "elevated: not granted yet");
+    let choices: Vec<_> = info.params[0]
+        .choices
+        .iter()
+        .map(|c| (c.value.as_str(), c.label.as_str()))
+        .collect();
+    assert_eq!(
+        choices,
+        [("test.app", "Test App")],
+        "only registered AND installed apps are offered"
+    );
+
+    reg.set_grants(["app.launch".to_owned()]);
+    let p = |v: Value| v.as_object().unwrap().clone();
+    let r = reg
+        .invoke("app.launch", &p(json!({"app": "test.app"})))
+        .await
+        .unwrap();
+    assert_eq!(r["app"], "test.app");
+    until(|| marker.exists()).await;
+    for bad in ["other.app", "/usr/bin/true", "missing.app"] {
+        let e = reg
+            .invoke("app.launch", &p(json!({"app": bad})))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, error_code::NOT_PERMITTED, "{bad}");
+    }
+    assert!(!dir.join("a").exists(), "no shell split the argument");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -26,15 +26,23 @@
 //!
 //! Intent: `Connect` sets `connection_wanted`, `Disconnect` clears it; both are saved
 //! for session recovery ([`crate::recovery`]).
+//!
+//! Stage 4 (protocol 1.1, Core 1.4): every `invoke` carries its request key; a request
+//! that ends `timeout` / `connection_lost` is remembered as *uncertain* so the user can
+//! `Retry` it with the same key (never automatically). With a 1.1 agent the link
+//! subscribes to the live topics after `welcome`, keeps the latest value of each, and
+//! clears them all when the session ends (no stale remote state). Notifications are
+//! filtered by the phone's preferences (muted apps dropped, DND marks them silent) and
+//! relayed without logging their content.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use pocket_dock_protocol::channel::{self, ChannelError};
-use pocket_dock_protocol::message::{ActionInfo, AgentMessage, ClientMessage};
+use pocket_dock_protocol::message::{ActionInfo, AgentMessage, ClientMessage, Version};
 use pocket_dock_protocol::{HANDSHAKE_TIMEOUT, PING_INTERVAL, PONG_TIMEOUT, PROTOCOL, error_code};
 use pocket_ipc::DockState;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep_until};
@@ -42,7 +50,7 @@ use tracing::{debug, info, warn};
 use zbus::object_server::SignalEmitter;
 
 use super::config::LinkConfig;
-use super::{Cmd, DockService, SharedState, lock};
+use super::{Cmd, DockService, LiveTopic, SharedState, Uncertain, lock};
 use crate::recovery;
 
 /// Time the computer has to confirm an action.
@@ -111,6 +119,20 @@ struct Session {
     agent: String,
     host_name: String,
     actions: Vec<ActionInfo>,
+    protocol: Version,
+}
+
+/// An accepted request waiting for the computer.
+struct Pending {
+    action: String,
+    params: Map<String, Value>,
+    key: String,
+    deadline: Instant,
+}
+
+/// Outcome codes after which the request may or may not have run.
+fn is_uncertain(code: &str) -> bool {
+    code == code::TIMEOUT || code == code::CONNECTION_LOST
 }
 
 enum Next {
@@ -326,6 +348,7 @@ impl Link {
             agent,
             host_name,
             actions,
+            protocol,
         } = s;
         let host_key = self.cfg.as_ref().map(|c| c.host.clone());
         info!(%agent, host = %host_name, actions = ?actions.iter().map(|a| &a.id).collect::<Vec<_>>(), "dock: connected");
@@ -344,6 +367,19 @@ impl Link {
         self.publish_actions().await;
 
         let (in_tx, mut in_rx) = mpsc::channel(16);
+        let mut last_tx = Instant::now();
+        if protocol.minor >= 1 {
+            let topics = pocket_dock_protocol::topic::ALL
+                .iter()
+                .map(|t| (*t).to_owned())
+                .collect();
+            if let Err(e) = sender.send(&ClientMessage::Subscribe { topics }).await {
+                warn!(error = %e, "dock: cannot subscribe to live state");
+            }
+            last_tx = Instant::now();
+        } else {
+            info!(%protocol, "dock: agent predates live state (protocol 1.1)");
+        }
         let reader = tokio::spawn(async move {
             loop {
                 let m = receiver.recv::<AgentMessage>().await;
@@ -354,14 +390,13 @@ impl Link {
             }
         });
 
-        let mut pending: HashMap<u64, (String, Instant)> = HashMap::new();
-        let mut last_tx = Instant::now();
+        let mut pending: HashMap<u64, Pending> = HashMap::new();
         let mut pong_deadline: Option<Instant> = None;
         let mut ping_id = 0u64;
 
         let end = loop {
             let mut deadline = pong_deadline.unwrap_or(last_tx + PING_INTERVAL);
-            if let Some(d) = pending.values().map(|(_, d)| *d).min() {
+            if let Some(d) = pending.values().map(|p| p.deadline).min() {
                 deadline = deadline.min(d);
             }
             tokio::select! {
@@ -376,32 +411,62 @@ impl Link {
                             break End::Reconnect;
                         }
                     }
-                    Some(Cmd::Execute { request, action, params }) => {
-                        let msg = ClientMessage::Invoke { id: request, action: action.clone(), params };
+                    Some(Cmd::Execute { request, action, params, key }) => {
+                        // Keys go only to agents that understand them (1.1).
+                        let wire_key = (protocol.minor >= 1).then(|| key.clone());
+                        let msg = ClientMessage::Invoke { id: request, action: action.clone(), params: params.clone(), key: wire_key };
+                        let p = Pending { action, params, key, deadline: Instant::now() + ACTION_TIMEOUT };
                         if let Err(e) = sender.send(&msg).await {
-                            self.finish(request, &action, Err((code::CONNECTION_LOST, "the connection failed while sending".into()))).await;
+                            self.finish_pending(request, p, code::CONNECTION_LOST, "the connection failed while sending; the action may or may not have run").await;
                             break End::Lost(Failure::transient(code::CONNECTION_ERROR, e.to_string()));
                         }
                         last_tx = Instant::now();
-                        pending.insert(request, (action, Instant::now() + ACTION_TIMEOUT));
+                        pending.insert(request, p);
                     }
                 },
                 m = in_rx.recv() => {
                     pong_deadline = None; // any message proves the agent is alive
                     match m {
                         Some(Ok(Some(msg))) => match msg {
-                            AgentMessage::Result { id, ok, data, error } => {
+                            AgentMessage::Result { id, ok, data, error, duplicate } => {
                                 match pending.remove(&id) {
-                                    Some((action, _)) => {
+                                    Some(p) => {
+                                        if duplicate {
+                                            info!(request = id, action = %p.action, "dock: the computer had already run this request (duplicate key)");
+                                        }
                                         let r = if ok {
                                             Ok(data)
                                         } else {
                                             let e = error.unwrap_or_else(|| pocket_dock_protocol::message::ErrorInfo::new(error_code::FAILED, "failed"));
                                             Err((e.code, e.message))
                                         };
-                                        self.finish_owned(id, &action, r).await;
+                                        self.finish_result(id, &p.action, r, duplicate).await;
                                     }
                                     None => debug!(id, "dock: result for an unknown or expired request"),
+                                }
+                            }
+                            AgentMessage::Progress { id, step, total, label } => {
+                                if pending.contains_key(&id) {
+                                    if let Some(e) = self.emitter() {
+                                        let _ = DockService::action_progress(&e, id, step, total, &label).await;
+                                    }
+                                }
+                            }
+                            AgentMessage::State { topic, rev, available, reason, interval_ms, data } => {
+                                if pocket_dock_protocol::topic::ALL.contains(&topic.as_str()) {
+                                    let t = LiveTopic { rev, available, reason, interval_ms, data, received: Instant::now() };
+                                    let json = t.json().to_string();
+                                    lock(&self.shared).live.insert(topic.clone(), t);
+                                    debug!(%topic, rev, available, "dock: live state");
+                                    if let Some(e) = self.emitter() {
+                                        let _ = DockService::live_changed(&e, &topic, &json).await;
+                                    }
+                                }
+                            }
+                            AgentMessage::Notification(n) => self.notification(n).await,
+                            AgentMessage::NotificationClosed { nid } => {
+                                if let Some(e) = self.emitter() {
+                                    let _ = DockService::notification_closed(&e, &nid).await;
                                 }
                             }
                             AgentMessage::Actions { actions } => {
@@ -430,10 +495,10 @@ impl Link {
                         last_tx = now;
                         pong_deadline = Some(now + PONG_TIMEOUT);
                     }
-                    let expired: Vec<u64> = pending.iter().filter(|(_, (_, d))| *d <= now).map(|(id, _)| *id).collect();
+                    let expired: Vec<u64> = pending.iter().filter(|(_, p)| p.deadline <= now).map(|(id, _)| *id).collect();
                     for id in expired {
-                        if let Some((action, _)) = pending.remove(&id) {
-                            self.finish(id, &action, Err((code::TIMEOUT, "the computer did not confirm the action in time".into()))).await;
+                        if let Some(p) = pending.remove(&id) {
+                            self.finish_pending(id, p, code::TIMEOUT, "the computer did not confirm the action in time; it may or may not have run").await;
                         }
                     }
                 }
@@ -442,14 +507,12 @@ impl Link {
 
         sender.close().await;
         reader.abort();
-        for (id, (action, _)) in pending {
-            self.finish(
+        for (id, p) in pending {
+            self.finish_pending(
                 id,
-                &action,
-                Err((
-                    code::CONNECTION_LOST,
-                    "the connection was lost before the computer confirmed; the action may or may not have run".into(),
-                )),
+                p,
+                code::CONNECTION_LOST,
+                "the connection was lost before the computer confirmed; the action may or may not have run",
             )
             .await;
         }
@@ -459,6 +522,15 @@ impl Link {
         })
         .await;
         self.publish_actions().await;
+        // Remote state ends with the session: never show it as current afterwards.
+        let topics: Vec<String> = std::mem::take(&mut lock(&self.shared).live)
+            .into_keys()
+            .collect();
+        if let Some(e) = self.emitter() {
+            for t in topics {
+                let _ = DockService::live_changed(&e, &t, "").await;
+            }
+        }
         info!("dock: session ended");
         end
     }
@@ -521,9 +593,79 @@ impl Link {
             .await;
     }
 
+    /// Ends a pending request with a phone-side failure; an uncertain outcome is kept
+    /// for `Retry`.
+    async fn finish_pending(&self, request: u64, p: Pending, code: &str, message: &str) {
+        if is_uncertain(code) {
+            lock(&self.shared).remember_uncertain(
+                request,
+                Uncertain {
+                    action: p.action.clone(),
+                    params: p.params,
+                    key: p.key,
+                    at: Instant::now(),
+                },
+            );
+        }
+        self.finish(request, &p.action, Err((code, message.to_owned())))
+            .await;
+    }
+
+    async fn notification(&self, mut n: pocket_dock_protocol::message::Notification) {
+        let (muted, dnd) = {
+            let s = lock(&self.shared);
+            (s.prefs.is_muted(&n.app), s.prefs.dnd)
+        };
+        if muted {
+            debug!(nid = %n.nid, "dock: notification from a muted application dropped");
+            return;
+        }
+        n.summary = n.summary.chars().take(200).collect();
+        n.body = n.body.chars().take(500).collect();
+        let mut v = serde_json::to_value(&n).unwrap_or_default();
+        if let Some(o) = v.as_object_mut() {
+            o.remove("type");
+            o.insert("silent".into(), Value::from(dnd));
+        }
+        // No content in the log: notification text is private.
+        info!(nid = %n.nid, silent = dnd, redacted = n.redacted, "dock: notification");
+        if let Some(e) = self.emitter() {
+            let _ = DockService::notification(&e, &v.to_string()).await;
+        }
+    }
+
+    async fn finish_result(
+        &self,
+        request: u64,
+        action: &str,
+        r: Result<Value, (String, String)>,
+        duplicate: bool,
+    ) {
+        self.finish_inner(request, action, r, duplicate).await
+    }
+
     async fn finish_owned(&self, request: u64, action: &str, r: Result<Value, (String, String)>) {
+        self.finish_inner(request, action, r, false).await
+    }
+
+    async fn finish_inner(
+        &self,
+        request: u64,
+        action: &str,
+        r: Result<Value, (String, String)>,
+        duplicate: bool,
+    ) {
         let (ok, code, message, data) = match r {
-            Ok(d) => (true, String::new(), String::new(), d),
+            Ok(d) => (
+                true,
+                String::new(),
+                if duplicate {
+                    "duplicate".to_owned()
+                } else {
+                    String::new()
+                },
+                d,
+            ),
             Err((c, m)) => (false, c, m, Value::Null),
         };
         if ok {
@@ -625,6 +767,7 @@ async fn establish(cfg: &LinkConfig, device_name: &str) -> Result<Session, Failu
                     agent,
                     host_name,
                     actions,
+                    protocol,
                 })
             }
             Ok(Some(AgentMessage::Error { code, message })) => {

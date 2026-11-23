@@ -37,28 +37,13 @@ fn escape(s: &str) -> String {
 impl Action for DesktopNotify {
     fn info(&self) -> ActionInfo {
         ActionInfo {
-            id: ID.into(),
-            label: "Desktop notification".into(),
-            category: "desktop".into(),
-            available: self.bus.is_some(),
-            reason: if self.bus.is_some() {
-                String::new()
-            } else {
-                "no desktop session bus".into()
-            },
             params: vec![
-                ParamInfo {
-                    name: "title".into(),
-                    kind: ParamKind::String,
-                    required: false,
-                },
-                ParamInfo {
-                    name: "body".into(),
-                    kind: ParamKind::String,
-                    required: false,
-                },
+                ParamInfo::new("title", ParamKind::String, false),
+                ParamInfo::new("body", ParamKind::String, false),
             ],
+            ..ActionInfo::new(ID, "Desktop notification", "desktop")
         }
+        .unavailable_if(self.bus.is_none().then(|| "no desktop session bus".into()))
     }
 
     fn execute<'a>(&'a self, params: &'a Params) -> ActionFuture<'a> {

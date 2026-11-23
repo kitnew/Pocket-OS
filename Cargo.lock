@@ -522,6 +522,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "pocket-dock-protocol",
+ "pocket-platform",
  "serde",
  "serde_json",
  "socket2",

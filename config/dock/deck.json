@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "navigation": { "idle_timeout_s": 15 },
+  "pages": [
+    {
+      "id": "general",
+      "title": "General",
+      "tiles": [
+        { "action": "session.lock", "label": "Lock laptop", "icon": "lock" },
+        { "action": "desktop.shortcut", "label": "Overview", "icon": "windows", "params": { "shortcut": "overview" } },
+        { "action": "desktop.shortcut", "label": "Show desktop", "icon": "desktop", "params": { "shortcut": "show_desktop" } },
+        { "action": "desktop.notify", "label": "Ping laptop", "icon": "bell", "params": { "title": "Pocket OS", "body": "Ping from your phone" } }
+      ]
+    },
+    {
+      "id": "development",
+      "title": "Development",
+      "tiles": [
+        { "action": "app.launch", "label": "Terminal", "icon": "terminal", "params": { "app": "org.kde.konsole" } },
+        { "action": "app.launch", "label": "Files", "icon": "folder", "params": { "app": "org.kde.dolphin" } },
+        { "action": "app.launch", "label": "Browser", "icon": "globe", "params": { "app": "org.mozilla.firefox" } },
+        { "action": "workflow.run", "label": "Start work", "icon": "play", "params": { "workflow": "start-work" } },
+        { "action": "desktop.shortcut", "label": "Previous desktop", "icon": "chevron-left", "params": { "shortcut": "desktop_previous" } },
+        { "action": "desktop.shortcut", "label": "Next desktop", "icon": "chevron-right", "params": { "shortcut": "desktop_next" } }
+      ]
+    },
+    {
+      "id": "media",
+      "title": "Media",
+      "tiles": [
+        { "action": "media.previous", "label": "Previous", "icon": "skip-back" },
+        { "action": "media.play_pause", "label": "Play / Pause", "icon": "play-pause" },
+        { "action": "media.next", "label": "Next", "icon": "skip-forward" },
+        { "action": "volume.mute", "label": "Mute", "icon": "volume-off" },
+        { "action": "volume.down", "label": "Volume −", "icon": "volume-down" },
+        { "action": "volume.up", "label": "Volume +", "icon": "volume" }
+      ]
+    }
+  ]
+}

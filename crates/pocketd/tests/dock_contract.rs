@@ -41,6 +41,18 @@ trait Dock {
     fn connect(&self) -> zbus::Result<()>;
     fn disconnect(&self) -> zbus::Result<()>;
     fn execute(&self, action: &str, params: HashMap<&str, Variant<'_>>) -> zbus::Result<u64>;
+    fn retry(&self, request: u64) -> zbus::Result<u64>;
+    fn get_deck(&self) -> zbus::Result<String>;
+    fn reload_deck(&self) -> zbus::Result<()>;
+    fn get_live(&self) -> zbus::Result<String>;
+    fn get_preferences(&self) -> zbus::Result<HashMap<String, OwnedVariant>>;
+    fn set_preference(&self, key: &str, value: Variant<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn deck_changed(&self) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn live_changed(&self, topic: String, json: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn notification(&self, json: String) -> zbus::Result<()>;
     #[zbus(signal)]
     fn action_finished(
         &self,
@@ -165,20 +177,14 @@ struct TestAction(&'static str);
 impl Action for TestAction {
     fn info(&self) -> ActionInfo {
         ActionInfo {
-            id: self.0.into(),
-            label: self.0.into(),
-            category: "test".into(),
             available: self.0 != "test.off",
             reason: if self.0 == "test.off" {
                 "switched off".into()
             } else {
                 String::new()
             },
-            params: vec![ParamInfo {
-                name: "text".into(),
-                kind: ParamKind::String,
-                required: false,
-            }],
+            params: vec![ParamInfo::new("text", ParamKind::String, false)],
+            ..ActionInfo::new(self.0, self.0, "test")
         }
     }
     fn execute<'a>(&'a self, params: &'a Params) -> ActionFuture<'a> {
@@ -194,8 +200,27 @@ impl Action for TestAction {
     }
 }
 
+/// `test.count`: takes 1 s and counts its executions (request-key tests).
+struct Counted(Arc<std::sync::atomic::AtomicU32>);
+
+impl Action for Counted {
+    fn info(&self) -> ActionInfo {
+        ActionInfo::new("test.count", "Count", "test")
+    }
+    fn execute<'a>(&'a self, _params: &'a Params) -> ActionFuture<'a> {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let n = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            Ok(serde_json::json!({ "run": n }))
+        })
+    }
+}
+
 struct Agent {
     rt: Option<tokio::runtime::Runtime>,
+    live: pocket_desktop_agent::live::Live,
+    notes: tokio::sync::broadcast::Sender<pocket_dock_protocol::message::AgentMessage>,
+    runs: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl Agent {
@@ -210,11 +235,14 @@ impl Agent {
         for id in ["test.echo", "test.slow", "test.off"] {
             reg.register(TestAction(id));
         }
+        let runs = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        reg.register(Counted(runs.clone()));
         let trusted = phone
             .map(|p| vec![("phone".to_owned(), p.public())])
             .unwrap_or_default();
         let mut server = Server::new(identity.clone(), trusted, "testdesk".into(), Arc::new(reg));
         server.protocol = protocol;
+        let (live, notes) = (server.live.clone(), server.notifications.clone());
         // Bind synchronously (the caller is inside another runtime), retrying while the
         // previous agent's port is still being released.
         let listener = (0..100)
@@ -229,7 +257,12 @@ impl Agent {
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
             let _ = Arc::new(server).serve(listener).await;
         });
-        Agent { rt: Some(rt) }
+        Agent {
+            rt: Some(rt),
+            live,
+            notes,
+            runs,
+        }
     }
 
     /// Kills the agent: every task is dropped and every socket closed.
@@ -390,7 +423,7 @@ async fn connect_discover_execute_and_disconnect() {
     // Capability discovery.
     let actions = dock.list_actions().await.unwrap();
     let ids: Vec<String> = actions.iter().map(|a| get(a, "id")).collect();
-    assert_eq!(ids, ["test.echo", "test.slow", "test.off"]);
+    assert_eq!(ids, ["test.echo", "test.slow", "test.off", "test.count"]);
     assert!(!get::<bool>(&actions[2], "available"));
     assert_eq!(get::<String>(&actions[2], "reason"), "switched off");
 
@@ -586,7 +619,7 @@ async fn unavailable_agent_restart_and_disconnection_recover_with_backoff() {
     // 4. Agent restart: reconnects by itself.
     let _agent = Agent::start(&desk, Some(&phone), port, pocket_dock_protocol::PROTOCOL);
     wait_state(&dock, "connected", Duration::from_secs(10)).await;
-    assert_eq!(dock.list_actions().await.unwrap().len(), 3);
+    assert_eq!(dock.list_actions().await.unwrap().len(), 4);
 
     // 5. Core restart (and clean shutdown while connected) outside a graphical session:
     //    there is no session recovery, so the new core starts disconnected (connection
@@ -739,7 +772,7 @@ async fn session_recovery_of_mode_and_link_intent() {
     assert!(get::<bool>(&s, "connection_wanted"));
     assert_eq!(
         dock.list_actions().await.unwrap().len(),
-        3,
+        4,
         "actions resynchronised"
     );
     let mut finished = dock.receive_action_finished().await.unwrap();
@@ -1010,4 +1043,292 @@ done"#,
     let s = dock.get_state().await.unwrap();
     assert_eq!(get::<String>(&s, "state"), "disconnected");
     assert_eq!(get::<u64>(&s, "revision"), rev);
+}
+
+// ── Stage 4 (Core 1.4) ───────────────────────────────────────────────────────────────
+
+/// A connected phone (pocketd on a private bus) and its agent.
+async fn connected(name: &str, protocol: Version) -> (Agent, Bus, Core, Connection, PathBuf) {
+    let (phone, desk) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+    let port = free_port();
+    let agent = Agent::start(&desk, Some(&phone), port, protocol);
+    let dir = phone_dir(name, &phone, &desk, port);
+    let bus = Bus::start();
+    let core = Core(bus.core(&dir));
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    dock.connect().await.unwrap();
+    wait_state(&dock, "connected", WAIT).await;
+    (agent, bus, core, conn, dir)
+}
+
+#[tokio::test]
+async fn deck_is_validated_reloadable_and_survives_a_core_restart() {
+    let bus = Bus::start();
+    let dir = std::env::temp_dir().join(format!("pocket-dock-deck-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut core = Core(bus.core(&dir));
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(deck["source"], "default");
+    assert_eq!(deck["navigation"]["idle_timeout_s"], 15);
+    assert_eq!(deck["pages"][0]["id"], "general");
+
+    let user = serde_json::json!({"version": 1, "navigation": {"idle_timeout_s": 30},
+        "pages": [{"id": "mine", "title": "Mine", "tiles": [{"action": "test.echo", "label": "Echo"}]}]});
+    std::fs::write(dir.join("deck.json"), user.to_string()).unwrap();
+    let mut changed = dock.receive_deck_changed().await.unwrap();
+    dock.reload_deck().await.unwrap();
+    timeout(WAIT, changed.next()).await.unwrap().unwrap();
+    let deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(
+        (deck["source"].as_str(), deck["pages"][0]["id"].as_str()),
+        (Some("user"), Some("mine"))
+    );
+    assert_eq!(deck["navigation"]["idle_timeout_s"], 30);
+
+    // A core restart reads the same configuration.
+    core.terminate();
+    let _core = Core(bus.core(&dir));
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(deck["pages"][0]["id"], "mine");
+
+    // An invalid user file: the default deck, with the reason.
+    std::fs::write(dir.join("deck.json"), r#"{"version":1,"pages":[{"id":"x","title":"x","tiles":[{"action":"rm -rf /","label":"x"}]}]}"#).unwrap();
+    dock.reload_deck().await.unwrap();
+    let deck: Value = serde_json::from_str(&dock.get_deck().await.unwrap()).unwrap();
+    assert_eq!(deck["source"], "default");
+    assert!(
+        deck["error"].as_str().unwrap().contains("action"),
+        "{}",
+        deck["error"]
+    );
+}
+
+#[tokio::test]
+async fn an_uncertain_request_is_retried_with_its_key_and_never_runs_twice() {
+    let (agent, _bus, _core, conn, _dir) = connected("retry", pocket_dock_protocol::PROTOCOL).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let mut finished = dock.receive_action_finished().await.unwrap();
+
+    let req = dock.execute("test.count", params(&[])).await.unwrap();
+    // The link goes away while the computer is still running it (1 s).
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    dock.disconnect().await.unwrap();
+    let a = timeout(WAIT, finished.next()).await.unwrap().unwrap();
+    let a = a.args().unwrap();
+    assert_eq!(
+        (a.request, a.ok, a.error_code.as_str()),
+        (req, false, "connection_lost")
+    );
+
+    // Nothing is re-sent automatically, not even after reconnecting.
+    dock.connect().await.unwrap();
+    wait_state(&dock, "connected", WAIT).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(
+        agent.runs.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "it did run once"
+    );
+
+    // The user retries: the computer returns the stored result instead of running again.
+    let again = dock.retry(req).await.unwrap();
+    assert_ne!(again, req);
+    let a = timeout(WAIT, finished.next()).await.unwrap().unwrap();
+    let a = a.args().unwrap();
+    assert_eq!(
+        (a.request, a.ok, a.message.as_str()),
+        (again, true, "duplicate")
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&a.data_json).unwrap(),
+        serde_json::json!({"run": 1})
+    );
+    assert_eq!(
+        agent.runs.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "executed exactly once"
+    );
+
+    // A request can be retried once; a known outcome cannot be retried at all.
+    assert_eq!(
+        error_name(dock.retry(req).await.unwrap_err()),
+        "org.pocketos.Core1.Error.UnknownRequest"
+    );
+    assert_eq!(
+        error_name(dock.retry(again).await.unwrap_err()),
+        "org.pocketos.Core1.Error.UnknownRequest"
+    );
+    assert_eq!(
+        error_name(dock.retry(999).await.unwrap_err()),
+        "org.pocketos.Core1.Error.UnknownRequest"
+    );
+}
+
+#[tokio::test]
+async fn live_state_is_relayed_and_cleared_when_the_session_ends() {
+    let (agent, _bus, _core, conn, _dir) = connected("live", pocket_dock_protocol::PROTOCOL).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let mut live = dock.receive_live_changed().await.unwrap();
+    agent.live.set(
+        "media",
+        true,
+        "",
+        0,
+        serde_json::json!({"active": "elisa", "players": []}),
+    );
+    let sig = timeout(WAIT, async {
+        loop {
+            let s = live.next().await.unwrap();
+            if s.args().unwrap().topic == "media" {
+                return s;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let v: Value = serde_json::from_str(&sig.args().unwrap().json).unwrap();
+    assert_eq!(v["data"]["active"], "elisa");
+    let all: Value = serde_json::from_str(&dock.get_live().await.unwrap()).unwrap();
+    assert_eq!(all["media"]["data"]["active"], "elisa");
+    assert_eq!(
+        all["host"]["available"], false,
+        "topics the agent does not provide are unavailable"
+    );
+
+    dock.disconnect().await.unwrap();
+    wait_state(&dock, "disconnected", WAIT).await;
+    assert_eq!(
+        dock.get_live().await.unwrap(),
+        "{}",
+        "no stale remote state"
+    );
+
+    // Reconnect: a fresh snapshot.
+    dock.connect().await.unwrap();
+    wait_state(&dock, "connected", WAIT).await;
+    timeout(WAIT, async {
+        loop {
+            let all: Value = serde_json::from_str(&dock.get_live().await.unwrap()).unwrap();
+            if all["media"]["data"]["active"] == "elisa" {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_1_0_agent_still_works_without_live_state() {
+    let old = Version { major: 1, minor: 0 };
+    let (_agent, _bus, _core, conn, _dir) = connected("old", old).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let mut finished = dock.receive_action_finished().await.unwrap();
+    let req = dock
+        .execute("test.echo", params(&[("text", "x")]))
+        .await
+        .unwrap();
+    let a = timeout(WAIT, finished.next()).await.unwrap().unwrap();
+    assert_eq!(
+        (a.args().unwrap().request, a.args().unwrap().ok),
+        (req, true)
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(dock.get_live().await.unwrap(), "{}");
+}
+
+#[tokio::test]
+async fn notifications_follow_the_phone_preferences_which_persist() {
+    let (agent, bus, mut core, conn, dir) =
+        connected("notes", pocket_dock_protocol::PROTOCOL).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let prefs = dock.get_preferences().await.unwrap();
+    assert!(!get::<bool>(&prefs, "dnd"));
+    let note = |app: &str| {
+        pocket_dock_protocol::message::AgentMessage::Notification(
+            pocket_dock_protocol::message::Notification {
+                nid: format!("n-{app}"),
+                app: app.into(),
+                summary: "Hello".into(),
+                body: "Body".into(),
+                urgency: 1,
+                redacted: false,
+                time_ms: 1,
+            },
+        )
+    };
+    // Wait until the link has subscribed (the snapshot of `notifications` arrived).
+    timeout(WAIT, async {
+        while !dock.get_live().await.unwrap().contains("notifications") {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut notes = dock.receive_notification().await.unwrap();
+    agent.notes.send(note("Mail")).unwrap();
+    let n: Value = serde_json::from_str(
+        &timeout(WAIT, notes.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .args()
+            .unwrap()
+            .json,
+    )
+    .unwrap();
+    assert_eq!(
+        (n["app"].as_str(), n["silent"].as_bool()),
+        (Some("Mail"), Some(false))
+    );
+
+    dock.set_preference("mute_app", Variant::from("mail"))
+        .await
+        .unwrap();
+    dock.set_preference("dnd", Variant::from(true))
+        .await
+        .unwrap();
+    assert_eq!(
+        error_name(
+            dock.set_preference("dnd", Variant::from("yes"))
+                .await
+                .unwrap_err()
+        ),
+        "org.pocketos.Core1.Error.InvalidArgument"
+    );
+    agent.notes.send(note("Mail")).unwrap();
+    agent.notes.send(note("Chat")).unwrap();
+    let n: Value = serde_json::from_str(
+        &timeout(WAIT, notes.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .args()
+            .unwrap()
+            .json,
+    )
+    .unwrap();
+    assert_eq!(
+        (n["app"].as_str(), n["silent"].as_bool()),
+        (Some("Chat"), Some(true)),
+        "muted app dropped; DND = silent"
+    );
+
+    // Preferences survive a core restart.
+    core.terminate();
+    let _core = Core(bus.core(&dir));
+    wait_ready(&conn).await;
+    let dock = DockProxy::new(&conn).await.unwrap();
+    let prefs = dock.get_preferences().await.unwrap();
+    assert!(get::<bool>(&prefs, "dnd"));
+    assert_eq!(get::<Vec<String>>(&prefs, "muted_apps"), ["mail"]);
 }

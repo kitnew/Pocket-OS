@@ -8,4 +8,7 @@
 
 pub mod actions;
 pub mod config;
+pub mod live;
+pub mod mpris;
+pub mod notifications;
 pub mod server;

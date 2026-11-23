@@ -11,10 +11,20 @@
 //! { "listen": "172.16.42.2:47130",
 //!   "host_name": "fedora",
 //!   "trusted": [ { "name": "lavender", "key": "<64 hex>" } ],
-//!   "enabled_actions": null }
+//!   "enabled_actions": null,
+//!   "grants": ["app.launch", "session.lock"],
+//!   "apps": ["org.kde.konsole", "org.kde.dolphin"],
+//!   "workflows": [ { "id": "start-work", "label": "Start work", "steps": [
+//!       { "action": "app.launch", "params": { "app": "org.kde.konsole" } },
+//!       { "action": "desktop.shortcut", "params": { "shortcut": "desktop_next" } } ] } ],
+//!   "notifications": { "forward": false, "allow_apps": null, "deny_apps": [],
+//!                      "redact_when_locked": true } }
 //! ```
 //! `listen` must be a specific address (the USB link), never `0.0.0.0`/`::`.
 //! `enabled_actions: null` enables every built-in action; a list restricts them.
+//! Stage 4 (ADR-0008): `grants` lists the *elevated* actions the phone may run (none by
+//! default); `apps` the desktop IDs `app.launch` may start; `workflows` named sequences
+//! of registered actions; `notifications` the forwarding policy (off by default).
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -38,6 +48,72 @@ pub struct Config {
     pub trusted: Vec<TrustedPeer>,
     #[serde(default)]
     pub enabled_actions: Option<Vec<String>>,
+    /// Elevated actions granted to trusted phones (ADR-0008).
+    #[serde(default)]
+    pub grants: Vec<String>,
+    /// Desktop-file IDs `app.launch` may start.
+    #[serde(default)]
+    pub apps: Vec<String>,
+    #[serde(default)]
+    pub workflows: Vec<WorkflowConfig>,
+    #[serde(default)]
+    pub notifications: NotificationPolicy,
+}
+
+/// A named sequence of registered actions (`workflow.run`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowConfig {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    pub steps: Vec<WorkflowStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub action: String,
+    #[serde(default)]
+    pub params: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Which desktop notifications are forwarded to the phone (ADR-0008 §5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationPolicy {
+    /// Off by default: with it on, any program in the phone's session can read them (#8).
+    #[serde(default)]
+    pub forward: bool,
+    /// Only these applications (by app name), if set.
+    #[serde(default)]
+    pub allow_apps: Option<Vec<String>>,
+    #[serde(default)]
+    pub deny_apps: Vec<String>,
+    /// Withhold the body while the screen is locked.
+    #[serde(default = "yes")]
+    pub redact_when_locked: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for NotificationPolicy {
+    fn default() -> Self {
+        NotificationPolicy {
+            forward: false,
+            allow_apps: None,
+            deny_apps: Vec::new(),
+            redact_when_locked: true,
+        }
+    }
+}
+
+/// Desktop-file IDs: `[A-Za-z0-9._-]`, 1–255 characters, no path separators.
+pub fn is_valid_desktop_id(id: &str) -> bool {
+    (1..=255).contains(&id.len())
+        && !id.starts_with('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 #[derive(Debug)]
@@ -136,6 +212,50 @@ impl Config {
                 .find(|i| !pocket_dock_protocol::is_valid_action_id(i))
             {
                 return Err(ConfigError::Invalid(format!("invalid action id {bad:?}")));
+            }
+        }
+        if let Some(bad) = self
+            .grants
+            .iter()
+            .find(|i| !pocket_dock_protocol::is_valid_action_id(i))
+        {
+            return Err(ConfigError::Invalid(format!(
+                "grants: invalid action id {bad:?}"
+            )));
+        }
+        if let Some(bad) = self.apps.iter().find(|a| !is_valid_desktop_id(a)) {
+            return Err(ConfigError::Invalid(format!(
+                "apps: invalid desktop ID {bad:?}"
+            )));
+        }
+        let mut ids = std::collections::HashSet::new();
+        for w in &self.workflows {
+            let at = format!("workflow {:?}", w.id);
+            if !pocket_dock_protocol::is_valid_action_id(&w.id) || !ids.insert(w.id.clone()) {
+                return Err(ConfigError::Invalid(format!(
+                    "{at}: invalid or duplicate id"
+                )));
+            }
+            if w.steps.is_empty() || w.steps.len() > 10 {
+                return Err(ConfigError::Invalid(format!("{at}: needs 1–10 steps")));
+            }
+            for s in &w.steps {
+                if !pocket_dock_protocol::is_valid_action_id(&s.action)
+                    || s.action == "workflow.run"
+                {
+                    return Err(ConfigError::Invalid(format!(
+                        "{at}: invalid step action {:?} (workflows cannot nest)",
+                        s.action
+                    )));
+                }
+                if s.params
+                    .values()
+                    .any(|v| v.is_object() || v.is_array() || v.is_null() || v.is_f64())
+                {
+                    return Err(ConfigError::Invalid(format!(
+                        "{at}: step parameters must be strings, booleans or integers"
+                    )));
+                }
             }
         }
         Ok(())

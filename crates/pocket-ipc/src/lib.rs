@@ -13,8 +13,10 @@ use std::str::FromStr;
 /// bump it (and the names) on any incompatible change, bump the minor on additions.
 /// History: 1.0 core state and modes (Stage 1); 1.1 adds the application object
 /// [`dbus::apps`] (Stage 2); 1.2 adds the Dock object [`dbus::dock`] (Stage 3); 1.3 adds
-/// the Dock state keys `retry_in_ms` and `connection_wanted` (Stage 3.1).
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 3 };
+/// the Dock state keys `retry_in_ms` and `connection_wanted` (Stage 3.1); 1.4 adds the
+/// Dock platform members (deck, retry, live state, notifications; Stage 4,
+/// docs/dock-mode/protocol.md).
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 4 };
 
 /// D-Bus names of the core service (session bus).
 pub mod dbus {
@@ -100,7 +102,15 @@ pub mod dbus {
     /// - signal `StateChanged(a{sv})`: full new state.
     /// - signal `ActionsChanged(aa{sv})`: full new action list.
     /// - signal `ActionFinished(t request, s action, b ok, s error_code, s message,
-    ///   s data_json)`: exactly once per accepted request.
+    ///   s data_json)`: exactly once per accepted request. Since 1.4 a duplicate result
+    ///   (the computer had already run this request key) is `ok` with `message =
+    ///   "duplicate"`.
+    ///
+    /// Since 1.4 (Stage 4, `docs/dock-mode/protocol.md`): `Retry(t) -> t`, `GetDeck() -> s`,
+    /// `ReloadDeck()`, `GetLive() -> s`, `GetPreferences() -> a{sv}`,
+    /// `SetPreference(s, v)`; signals `DeckChanged()`, `LiveChanged(s topic, s json)`,
+    /// `ActionProgress(t request, u step, u total, s label)`, `Notification(s json)`,
+    /// `NotificationClosed(s nid)`. Error `…Error.UnknownRequest`.
     pub mod dock {
         pub const OBJECT_PATH: &str = "/org/pocketos/Core1/Dock";
         pub const INTERFACE: &str = "org.pocketos.Core1.Dock";
@@ -146,6 +156,21 @@ pub mod dbus {
             pub const AVAILABLE: &str = "available";
             /// `s`: why it is unavailable.
             pub const REASON: &str = "reason";
+            /// `s`: `basic` | `elevated` (since 1.4; ADR-0008).
+            pub const PRIVILEGE: &str = "privilege";
+            /// `b`: running it twice has the same effect as once (since 1.4).
+            pub const IDEMPOTENT: &str = "idempotent";
+            /// `b`: the UI asks before sending it (since 1.4).
+            pub const CONFIRM: &str = "confirm";
+        }
+
+        /// Keys of `GetPreferences` (since 1.4). `SetPreference` keys: `dnd` (b),
+        /// `mute_app` (s), `unmute_app` (s).
+        pub mod pref_key {
+            /// `b`: Do Not Disturb (no banners; history still fills).
+            pub const DND: &str = "dnd";
+            /// `as`: applications whose notifications are dropped.
+            pub const MUTED_APPS: &str = "muted_apps";
         }
     }
 }
@@ -281,7 +306,7 @@ mod tests {
         assert!(v(1, 0).is_compatible_with(v(1, 2)));
         assert!(!v(1, 2).is_compatible_with(v(1, 0)));
         assert!(!v(2, 0).is_compatible_with(v(1, 9)));
-        assert_eq!(PROTOCOL_VERSION.to_string(), "1.3");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "1.4");
     }
 
     #[test]

@@ -47,6 +47,8 @@ pub enum Error {
     ActionUnavailable(String),
     /// Dock: a malformed argument, e.g. an unsupported parameter type (since 1.2).
     InvalidArgument(String),
+    /// Dock: `Retry` of a request that is not (or no longer) uncertain (since 1.4).
+    UnknownRequest(String),
 }
 
 impl From<CoreError> for Error {
