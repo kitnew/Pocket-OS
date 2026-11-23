@@ -1,19 +1,23 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import "../features/devpanel"
+import "../features/home"
+import "../state"
+import "../theme"
 
-// Full-screen wlr-layer-shell surface hosting the Stage 1 development panel.
-// This file (and shell.qml) are the only Quickshell-specific parts of the shell.
+// Home (home page, launcher, window switcher). A top-layer surface between the status
+// and navigation bars, mapped only while Shell.homeVisible: it covers application
+// windows when shown and does not exist for input when hidden. Phoc cannot minimize
+// windows, so "go home" means showing this surface above them (ADR-0005).
+// Keyboard focus on demand: only when the search field is used.
 PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Bottom
+    exclusionMode: ExclusionMode.Normal
+    WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "pocket-home"
-    color: "transparent"
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    color: Theme.background
+    visible: Shell.homeVisible
 
-    DevPanel {
-        anchors.fill: parent
-        runtimeName: "Quickshell"
-    }
+    HomeView { anchors.fill: parent }
 }

@@ -23,7 +23,7 @@ if [ "${1:-}" = "--device" ]; then
 	"$root/scripts/deploy.sh" >/dev/null
 	# Theme.qml's "not declared as singleton" warning is a known qmllint false positive when
 	# the directory singleton is linted standalone; the runtime resolves it.
-	ssh "${POCKET_DEVICE:-lavender}" 'cd ~/pocket-os/shell && find components features theme -name "*.qml" | xargs /usr/lib/qt6/bin/qmllint -I . -I ~/pocket-os/qml && echo "qmllint ok (Quickshell-specific surfaces/ and shell.qml are validated by running them)"'
+	ssh "${POCKET_DEVICE:-lavender}" 'cd ~/pocket-os/shell && find components features theme state -name "*.qml" | xargs /usr/lib/qt6/bin/qmllint -I . -I ~/pocket-os/qml && echo "qmllint ok (Quickshell-specific surfaces/ and shell.qml are validated by running them)"'
 	"$root/scripts/test-device.sh"
 fi
 echo "all checks passed"

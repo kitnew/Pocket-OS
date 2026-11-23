@@ -1,0 +1,177 @@
+  INFO pocket.shell.diag: event=nav.page page=apps
+  INFO pocket.shell.diag: event=launcher.search focus=true
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=launcher.search focus=false
+  INFO pocket.shell.diag: event=app.launch id=foot
+  INFO pocket.shell.diag: event=toast kind=info text="Starting Foot…"
+2026-11-23T00:27:28.930775Z  INFO pocketd::apps: Launch sender=:1.11 id="foot" argv=["foot"] dbus=false
+2026-11-23T00:27:28.932609Z  INFO pocketd::apps: launched id="foot" pid=7496
+  INFO pocket.shell.diag: event=app.launched id=foot pid=7496
+  INFO pocket.shell.diag: event=window.opened appId=foot app=foot windows=1
+  INFO pocket.shell.diag: event=nav.home windows=1
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=window.activate appId=foot
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=nav.home windows=1
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=app.launch id=pocket-test-widget-factory
+  INFO pocket.shell.diag: event=toast kind=info text="Starting GTK Widget Factory…"
+2026-11-23T00:28:02.444635Z  INFO pocketd::apps: Launch sender=:1.11 id="pocket-test-widget-factory" argv=["gtk3-widget-factory"] dbus=false
+2026-11-23T00:28:02.445625Z  INFO pocketd::apps: launched id="pocket-test-widget-factory" pid=7595
+  INFO pocket.shell.diag: event=app.launched id=pocket-test-widget-factory pid=7595
+  INFO pocket.shell.diag: event=window.opened appId=gtk3-widget-factory app=pocket-test-widget-factory windows=2
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=nav.page page=switcher
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=window.activate appId=foot
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=nav.page page=switcher
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=window.activate appId=gtk3-widget-factory
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=nav.keyboard visible=false
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=rotation.mode mode=landscape
+  INFO pocket.platform.output: request rotation 90
+  INFO pocket.platform.output: output DSI-1 rotation 90 serial 182
+  INFO pocket.shell.diag: event=output.rotation rotation=90
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="applied"
+  INFO pocket.shell.diag: event=rotation.mode mode=auto
+  INFO pocket.platform.sensor: ClaimAccelerometer ok
+  INFO pocket.shell.diag: event=rotation.mode mode=portrait
+  INFO pocket.platform.output: request rotation 0
+  INFO pocket.platform.sensor: ReleaseAccelerometer ok
+  INFO pocket.platform.output: output DSI-1 rotation 0 serial 191
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="applied"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.shell.diag: event=rotation.mode mode=landscape
+  INFO pocket.platform.output: request rotation 90
+  INFO pocket.platform.output: output DSI-1 rotation 90 serial 198
+  INFO pocket.shell.diag: event=output.rotation rotation=90
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="applied"
+  INFO pocket.shell.diag: event=rotation.mode mode=auto
+  INFO pocket.platform.sensor: ClaimAccelerometer ok
+  INFO pocket.platform.sensor: orientation right-up
+  INFO pocket.platform.output: request rotation 270
+  INFO pocket.platform.output: output DSI-1 rotation 270 serial 201
+  INFO pocket.shell.diag: event=output.rotation rotation=270
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="applied"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.platform.sensor: orientation normal
+  INFO pocket.platform.output: request rotation 0
+  INFO pocket.platform.output: output DSI-1 rotation 0 serial 206
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="applied"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.platform.sensor: orientation right-up
+  INFO pocket.platform.output: request rotation 270
+  INFO pocket.platform.output: output DSI-1 rotation 270 serial 211
+  INFO pocket.shell.diag: event=output.rotation rotation=270
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="applied"
+  INFO pocket.platform.sensor: orientation left-up
+  INFO pocket.platform.output: request rotation 90
+  INFO pocket.platform.output: output DSI-1 rotation 90 serial 212
+  INFO pocket.shell.diag: event=output.rotation rotation=90
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="applied"
+  INFO pocket.platform.sensor: orientation bottom-up
+  INFO pocket.platform.sensor: orientation left-up
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="unchanged"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="unchanged"
+  INFO pocket.platform.sensor: orientation normal
+  INFO pocket.platform.output: request rotation 0
+  INFO pocket.platform.output: output DSI-1 rotation 0 serial 217
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="applied"
+  INFO pocket.shell.diag: event=rotation.mode mode=portrait
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.platform.sensor: ReleaseAccelerometer ok
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=nav.home windows=2
+  INFO pocket.shell.diag: event=rotation.mode mode=landscape
+  INFO pocket.platform.output: request rotation 90
+  INFO pocket.platform.output: output DSI-1 rotation 90 serial 244
+  INFO pocket.shell.diag: event=output.rotation rotation=90
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=90 detail="applied"
+  INFO pocket.shell.diag: event=layout.orientation runtime=Quickshell surface=home size=780x288 landscape=true
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=nav.home windows=2
+  INFO pocket.shell.diag: event=nav.page page=apps
+  INFO pocket.shell.diag: event=rotation.mode mode=auto
+  INFO pocket.platform.sensor: orientation undefined
+  INFO pocket.platform.sensor: ClaimAccelerometer ok
+  INFO pocket.platform.output: request rotation 270
+  INFO pocket.platform.output: output DSI-1 rotation 270 serial 260
+  INFO pocket.shell.diag: event=output.rotation rotation=270
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="applied"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=app.reactivate id=foot
+  INFO pocket.shell.diag: event=window.activate appId=foot
+  INFO pocket.platform.osk: keyboard visible true
+  INFO pocket.shell.diag: event=osk.visible visible=true
+  INFO pocket.shell.diag: event=nav.page page=switcher
+  INFO pocket.platform.osk: keyboard visible false
+  INFO pocket.shell.diag: event=osk.visible visible=false
+  INFO pocket.shell.diag: event=window.close appId=foot
+  INFO pocket.shell.diag: event=window.closed appId=foot windows=1
+2026-11-23T00:30:12.923376Z  INFO pocketd::apps: app exited id="foot" pid=7496 success=false detail="status=1"
+  INFO pocket.shell.diag: event=app.exited id=foot pid=7496 success=false detail=status=1
+  INFO pocket.shell.diag: event=window.close appId=gtk3-widget-factory
+  INFO pocket.shell.diag: event=window.closed appId=gtk3-widget-factory windows=0
+2026-11-23T00:30:13.938001Z  INFO pocketd::apps: app exited id="pocket-test-widget-factory" pid=7595 success=true detail="status=0"
+  INFO pocket.shell.diag: event=app.exited id=pocket-test-widget-factory pid=7595 success=true detail=status=0
+  INFO pocket.shell.diag: event=nav.home windows=0
+  INFO pocket.shell.diag: event=panel open=quicksettings
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=270 detail="unchanged"
+  INFO pocket.shell.diag: event=rotation.mode mode=portrait
+  INFO pocket.platform.output: request rotation 0
+  INFO pocket.platform.output: output DSI-1 rotation 0 serial 303
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.output: configuration applied 
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="applied"
+  INFO pocket.platform.sensor: ReleaseAccelerometer ok
+  INFO pocket.shell.diag: event=output.applied ok=true rotation=0 detail="unchanged"
+  INFO pocket.shell.diag: event=layout.orientation runtime=Quickshell surface=home size=360x708 landscape=false
+  INFO pocket.shell.diag: event=panel open=-
+  INFO pocket.shell.diag: event=powerkey.pressed display=on
+  INFO pocket.platform.display: request display off
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.display: output DSI-1 power off
+  INFO pocket.shell.diag: event=display.power on=false
+  INFO pocket.shell.diag: event=powerkey.pressed display=off
+  INFO pocket.platform.display: request display on
+  INFO pocket.platform.output: output DSI-1 rotation 0 serial 309
+  INFO pocket.shell.diag: event=output.rotation rotation=0
+  INFO pocket.platform.display: output DSI-1 power on
+  INFO pocket.shell.diag: event=display.power on=true

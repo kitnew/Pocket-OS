@@ -1,0 +1,16 @@
+#!/bin/sh
+# On-screen keyboard for the Pocket session: squeekboard (input-method-v2 +
+# virtual-keyboard on Phoc). Started (and restarted) by `pocket-supervise osk`.
+#
+# squeekboard shows itself when a text field gets focus only if the GSettings key
+# org.gnome.desktop.a11y.applications screen-keyboard-enabled is true. There is no dconf
+# on the device, so the keyboard gets a private GSettings keyfile backend with that key
+# set; nothing in the user's own configuration is touched.
+conf="${XDG_RUNTIME_DIR:?}/pocket-os/osk-config"
+mkdir -p "$conf/glib-2.0/settings"
+cat >"$conf/glib-2.0/settings/keyfile" <<'KEYFILE'
+[org/gnome/desktop/a11y/applications]
+screen-keyboard-enabled=true
+KEYFILE
+export GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$conf"
+exec squeekboard

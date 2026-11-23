@@ -1,149 +1,116 @@
 import QtQuick
 import Pocket.Core
 import "../../components"
+import "../../state"
 import "../../theme"
 
-// Stage 1 development panel: shows the live link to Pocket Core and switches the logical
-// mode through it. The displayed mode is always the core's (from GetState/StateChanged),
-// never a local guess. Runtime-agnostic: Qt Quick + the Pocket.Core QtDBus module.
+// Development diagnostics (opened from Quick Settings → Developer): live link to Pocket
+// Core, the logical mode switch, platform adapter states, last diagnostic event. The
+// displayed mode is always the core's (GetState/StateChanged), never a local guess.
+// Uses the shared Shell.core connection.
 Rectangle {
     id: root
 
-    property string runtimeName: "unknown"
-    property string lastEvent: "none yet"
+    readonly property CoreClient core: Shell.core
+    readonly property bool connected: Shell.coreConnected
+    readonly property string otherMode: root.core.mode === "dock" ? "handheld" : "dock"
     readonly property bool landscape: width > height
-    readonly property bool connected: core.status === CoreClient.Connected
-    readonly property string otherMode: core.mode === "dock" ? "handheld" : "dock"
+    signal closeRequested()
 
     color: Theme.background
-
     function title(s) { return s.length ? s.charAt(0).toUpperCase() + s.slice(1) : "—" }
+    function yn(b) { return b ? "yes" : "no" }
 
-    LoggingCategory {
-        id: diag
-        name: "pocket.shell.diag"
-        defaultLogLevel: LoggingCategory.Info
+    IconButton {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: Theme.space2
+        icon: "close"
+        accessibleName: "Close developer panel"
+        onActivated: root.closeRequested()
     }
 
-    function emitDiagnostic(name, fields) {
-        // One machine-greppable line per event: "pocket.shell.diag: event=<name> k=v ..."
-        let line = "event=" + name
-        for (const k in fields)
-            line += " " + k + "=" + fields[k]
-        console.info(diag, line)
-        lastEvent = line
-    }
-
-    CoreClient {
-        id: core
-        onStatusChanged: root.emitDiagnostic("core.status", {
-            status: statusText.toLowerCase(), owner: owner || "-", connections: connections,
-            error: lastError ? JSON.stringify(lastError) : "-" })
-        onModeChanged: root.emitDiagnostic("core.mode", { mode: mode, revision: revision })
-        onRequestFinished: (mode, ok, error) => root.emitDiagnostic("core.request", {
-            mode: mode, ok: ok, error: ok ? "-" : JSON.stringify(error) })
-    }
-
-    // The surface is configured asynchronously; report layout only once it has a real size.
-    // Sizes arrive one dimension at a time: defer until the configure settles, and report
-    // only actual changes.
-    property var reportedLandscape: undefined
-    function reportLayout() {
-        if (width <= 0 || height <= 0 || landscape === reportedLandscape)
-            return
-        const first = reportedLandscape === undefined
-        reportedLandscape = landscape
-        emitDiagnostic(first ? "shell.started" : "layout.orientation",
-                       { runtime: runtimeName, size: width + "x" + height, landscape: landscape })
-    }
-    onWidthChanged: Qt.callLater(reportLayout)
-    onHeightChanged: Qt.callLater(reportLayout)
-
-    Grid {
-        anchors.centerIn: parent
-        columns: root.landscape ? 2 : 1
-        spacing: Theme.spacing * 2
-        horizontalItemAlignment: Grid.AlignHCenter
-        verticalItemAlignment: Grid.AlignVCenter
+    Flickable {
+        anchors.fill: parent
+        anchors.margins: Theme.space5
+        anchors.topMargin: Theme.space6
+        contentHeight: column.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
         Column {
-            spacing: Theme.spacing / 2
+            id: column
+            width: parent.width
+            spacing: Theme.space4
+
             Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "Pocket OS"
+                text: "Developer"
                 color: Theme.text
                 font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
             Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.spacing / 2
+                spacing: Theme.space2
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 12; height: 12; radius: 6
-                    color: core.status === CoreClient.Connected ? Theme.accent
-                         : core.status === CoreClient.Connecting ? Theme.warning : Theme.danger
+                    color: root.core.status === CoreClient.Connected ? Theme.success
+                         : root.core.status === CoreClient.Connecting ? Theme.warning : Theme.danger
                 }
                 Text {
-                    text: "Core: " + core.statusText
+                    text: "Core: " + root.core.statusText
                     color: Theme.text
-                    font.pixelSize: Theme.fontBody + 2
+                    font.pixelSize: Theme.fontBody
                 }
             }
             Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "Mode: " + root.title(core.mode) + (root.connected ? "" : " (last known)")
+                text: "Mode: " + root.title(root.core.mode) + (root.connected ? "" : " (last known)")
                 color: root.connected ? Theme.text : Theme.textMuted
-                font.pixelSize: Theme.fontBody + 8
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.fontTitle
             }
-        }
-
-        Column {
-            spacing: Theme.spacing
             PocketButton {
-                anchors.horizontalCenter: parent.horizontalCenter
-                enabled: root.connected && !core.requestPending
+                enabled: root.connected && !root.core.requestPending
                 text: "Switch to " + root.title(root.otherMode)
-                checked: core.mode === "dock"
+                checked: root.core.mode === "dock"
                 onActivated: (point) => {
                     const target = root.otherMode
-                    root.emitDiagnostic("button.activated", {
+                    Shell.diag("button.activated", {
                         request: target,
                         x: point.position.x.toFixed(0),
                         y: point.position.y.toFixed(0),
                         device: point.device ? point.device.name : "unknown"
                     })
-                    core.requestMode(target)
+                    root.core.requestMode(target)
                 }
             }
             Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.connected
-                      ? "pocketd " + core.coreVersion + " · protocol " + core.protocol
-                        + " · rev " + core.revision + " · " + core.owner
-                      : (core.lastError || "waiting for pocketd")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSmall
-                width: Math.min(root.width - 2 * Theme.spacing, 340)
-                horizontalAlignment: Text.AlignHCenter
+                width: parent.width
                 wrapMode: Text.Wrap
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.runtimeName + " · " + root.width + "×" + root.height
-                      + (root.landscape ? " · landscape" : " · portrait")
-                      + " · links " + core.connections
                 color: Theme.textMuted
-                font.pixelSize: Theme.fontSmall
+                font.pixelSize: Theme.fontLabel
+                text: (root.connected
+                       ? "pocketd " + root.core.coreVersion + " · protocol " + root.core.protocol
+                         + " · rev " + root.core.revision + " · " + root.core.owner
+                       : (root.core.lastError || "waiting for pocketd"))
+                      + "\nlinks " + root.core.connections + " · apps " + Shell.apps.count
+                      + (Shell.apps.lastError ? " (" + Shell.apps.lastError + ")" : "")
+                      + "\nwindows " + Shell.windowCount + " · home " + Shell.homeVisible + "/" + Shell.homePage
+                      + "\nsurface " + root.width + "×" + root.height + (root.landscape ? " landscape" : " portrait")
+                      + "\noutput " + (Shell.output.available ? Shell.output.outputName + " rot " + Shell.output.rotation : "n/a")
+                      + " · display " + (Shell.display.available ? (Shell.display.on ? "on" : "off") : "n/a")
+                      + "\npower key grab " + root.yn(Shell.powerKey.active) + (Shell.powerKey.error ? " (" + Shell.powerKey.error + ")" : "")
+                      + "\nbacklight " + (Shell.brightness.available ? Shell.brightness.device + " " + Math.round(Shell.brightness.value * 100) + "%" : "n/a")
+                      + "\naccelerometer " + root.yn(Shell.sensor.available) + " claimed " + root.yn(Shell.sensor.claimed)
+                      + " " + Shell.sensor.orientation + (Shell.sensor.lastError ? " (" + Shell.sensor.lastError + ")" : "")
+                      + "\nosk " + root.yn(Shell.osk.available) + " visible " + root.yn(Shell.osk.visible)
+                      + " · sound cards " + Shell.audio.cards
             }
             Text {
-                width: Math.min(root.width - 2 * Theme.spacing, 340)
-                horizontalAlignment: Text.AlignHCenter
+                width: parent.width
                 wrapMode: Text.WrapAnywhere
-                text: "last: " + root.lastEvent
+                text: "last: " + Shell.lastEvent
                 color: Theme.textMuted
-                font.pixelSize: Theme.fontSmall - 2
+                font.pixelSize: Theme.fontCaption
             }
         }
     }

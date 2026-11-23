@@ -1,125 +1,141 @@
 # Architecture overview
 
-Status: **Stage 1 (implemented)**. Items marked *planned* do not exist yet.
+Status: **Stage 2 (implemented)**: a mobile shell with home, launcher, window switching,
+status bar, quick settings, on-screen keyboard, rotation and display power. Items marked
+*planned* do not exist yet.
 Decisions: [ADR-0001](../decisions/0001-initial-technology-stack.md) (stack),
 [ADR-0002](../decisions/0002-pocket-core-and-ipc.md) (core + IPC),
-[ADR-0003](../decisions/0003-graphical-session-lifecycle.md) (session lifecycle).
+[ADR-0003](../decisions/0003-graphical-session-lifecycle.md) (session lifecycle),
+[ADR-0004](../decisions/0004-shell-ui-architecture.md) (shell UI),
+[ADR-0005](../decisions/0005-applications-and-window-management.md) (apps, windows,
+compositor capabilities, lock screen).
 
 ## Layers
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│ L4  Pocket UI         Qt 6 / Qt Quick / QML on Quickshell      │  apps/shell
-│                       + Pocket.Core QML module (QtDBus client) │  bridge/pocket-core-qml
-├──────────── D-Bus session bus: org.pocketos.Core1 ────────────┤
-│ L3  Pocket Core       pocketd (Rust, zbus): state, modes,      │  crates/pocketd
-│                       validation, events                       │  crates/pocket-core
-│                                                                │  crates/pocket-ipc
-├───────────────────────────────────────────────────────────────┤
-│ L2  Graphics & system Phoc (Wayland compositor, wlroots)       │
-│                       D-Bus, elogind, NetworkManager, UPower … │
-├───────────────────────────────────────────────────────────────┤
-│ L1  OS                postmarketOS edge / Alpine, OpenRC,      │
-│                       Linux 7.2 sdm660, DRM/KMS (msm), Mesa    │
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ L4  Pocket Shell   QML on Quickshell                       apps/shell   │
+│       surfaces/ services/   (Quickshell-specific)                       │
+│       state/Shell  features/  components/  theme/   (portable Qt Quick)  │
+│     Pocket.Core      CoreClient, AppCatalog (QtDBus → pocketd)          │
+│     Pocket.Platform  PowerKey, DisplayPower, OutputConfig (Wayland),    │
+│                      Brightness, OrientationSensor, OnScreenKeyboard    │
+├──────────── D-Bus session bus: org.pocketos.Core1 (+ /Apps) ───────────┤
+│ L3  Pocket Core    pocketd (Rust, zbus)                crates/pocketd    │
+│                    pocket-core: mode state machine     crates/pocket-core│
+│                    pocket-platform: app catalog/launch crates/pocket-platform│
+│                    pocket-ipc: contract                crates/pocket-ipc │
+├────────────────────────────────────────────────────────────────────────┤
+│ L2  Compositor & services  Phoc 0.59 · squeekboard · UPower ·           │
+│     NetworkManager · BlueZ · iio-sensor-proxy · elogind · polkit        │
+├────────────────────────────────────────────────────────────────────────┤
+│ L1  OS   postmarketOS edge / Alpine, OpenRC, Linux 7.2 sdm660, Mesa     │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components and responsibilities
 
 | Component | Responsibility | Not responsible for |
 |---|---|---|
-| **Phoc** | Output, composition, input routing, layer-shell, output transform/scale | Shell UI, policy, state |
-| **Pocket Shell** (`apps/shell`) | All UI. Mirrors core state, sends requests | Owning state; talking to system services; shell commands for system control |
-| **Pocket.Core bridge** (`bridge/pocket-core-qml`) | QtDBus client exposed to QML as `CoreClient`: connection status, state mirror, `requestMode`, reconnection | Any business logic |
-| **pocketd** (`crates/pocketd`) | D-Bus service: name ownership, request handling, signals, logging, graceful shutdown | Logic (delegated to `pocket-core`) |
-| **pocket-core** | `StateManager`: initial state, command validation, transitions, revision, typed errors. No I/O; unit-tested | Transport, Qt, system services |
-| **pocket-ipc** | The contract: bus names, protocol version, `Mode` wire names, state keys | Transport library details |
-| **Session layer** (`packaging/openrc`, `scripts/device/pocket-*`) | Seat session, private bus, process topology, supervision, restart limits, shutdown | Policy inside components |
-| **pocket-platform** *planned* | Adapters to system services when a feature needs one | — |
+| **Phoc** | Composition, input, layer-shell stacking, window activation/close, output power/transform/scale, input-method relay | Shell UI, policy |
+| **Pocket Shell** (`apps/shell`) | All UI and UI-owned state (navigation, open panel, rotation mode, toasts) | Authoritative state; spawning processes; shell commands |
+| **Pocket.Core** (`bridge/pocket-core-qml`) | `CoreClient` (core state, mode, reconnection); `AppCatalog`/`AppFilter` (catalog mirror, launch, exit reports) over the same connection | Logic |
+| **Pocket.Platform** (`bridge/pocket-platform-qml`) | Shell-side adapters without a Quickshell integration: power-key grab (phosh_private), display power (wlr-output-power), rotation (wlr-output-management), backlight (logind), accelerometer (iio-sensor-proxy), OSK visibility (`sm.puri.OSK0`), sound-card presence | Policy (it lives in `state/Shell.qml`) |
+| **pocketd** (`crates/pocketd`) | D-Bus service: Core1 (mode) and Core1/Apps (catalog, launch, exit signals, inotify rescans) | Logic (delegated to the crates below) |
+| **pocket-core** | `StateManager`: mode, validation, events, revision. No I/O | Transport, system services |
+| **pocket-platform** | Desktop Entry discovery, visibility rules, safe Exec expansion, icon lookup, launch command | D-Bus, Qt |
+| **pocket-ipc** | Contract: names, protocol 1.1, keys | — |
+| **Session layer** | Seat session, private bus, supervision of core/shell/osk | Policy inside components |
 
 ## Process topology (one graphical session)
 
 ```
 rc-service pocket-session (root, manual; not in any runlevel)
-└─ openvt -c 7 ─ su -l <user>                  PAM/elogind: session cN, seat0, tty7
+└─ openvt -c 7 ─ su -l <user>                  PAM/elogind: seat0, tty7 (active, local)
    └─ pocket-session                           log: ~/.local/state/pocket-os/session.log
-      └─ dbus-run-session                      private session bus for this session
+      └─ dbus-run-session                      private session bus
          └─ pocket-session-run                 session root (lives as long as Phoc)
-            ├─ pocket-supervise core ── pocketd          owns org.pocketos.Core1
-            └─ phoc -E ── pocket-supervise shell ── quickshell (Pocket Shell)
+            ├─ pocket-supervise core ── pocketd           owns org.pocketos.Core1
+            │                             └─ launched apps (own process groups)
+            ├─ phoc -E ── pocket-supervise shell ── quickshell (Pocket Shell)
+            └─ pocket-supervise osk ── squeekboard        (after Phoc's socket exists)
 ```
 
-- Shell, core and compositor are separate processes with separate lifetimes. A shell
-  crash keeps Phoc and the core alive. A core crash keeps the UI alive. A Phoc exit ends
-  the session.
-- Runtime control state: `$XDG_RUNTIME_DIR/pocket-os/` (`env` with the session's
-  `DBUS_SESSION_BUS_ADDRESS`/`WAYLAND_DISPLAY`, pid files, hold/restart/failed markers).
-  `pocket-ctl` (user, no root) restarts, stops or starts single components.
+Core, shell and keyboard restart independently. Applications are children of `pocketd`
+in their own process groups, so they survive core and shell restarts. They end with the
+logind session.
 
-## UI/Core separation and D-Bus boundary
+## Surfaces (layer-shell) and navigation
 
-1. `pocket-core` and `pocket-ipc` depend on nothing UI- or transport-specific;
-   `pocketd` is the only place that knows D-Bus on the Rust side.
-2. QML reaches the core only through `CoreClient`. QML never spawns processes for system
-   control.
-3. Pattern: clients send **requests**; the core validates, applies atomically, and
-   broadcasts **`ModeChanged` + `StateChanged`** (full `a{sv}` state with a revision).
-   Clients never assume a request succeeded; the UI's mode label changes only on core
-   state. All subscribers receive the same signals (D-Bus broadcast); there is no polling.
-4. Quickshell-specific code stays in `apps/shell/shell.qml` and `apps/shell/surfaces/`.
-   `components/`, `features/` and `theme/` are plain Qt Quick plus the `Pocket.Core`
-   module, so they run under any Qt Quick host.
+| Surface | Layer | Mapped |
+|---|---|---|
+| Status bar (time, Core, Dock, Bluetooth, Wi-Fi, battery) | top, exclusive zone | always |
+| Navigation bar (Keyboard · Home · Open windows) | top, exclusive zone | always |
+| Home: home page / launcher / switcher | top, between the bars | when requested or no windows exist |
+| squeekboard | top (own client) | while a text field has focus or when toggled |
+| Developer panel, Quick Settings, toasts | overlay | while open |
 
-Contract summary (full table in ADR-0002): `GetVersion() → (s,u,u)`, `GetState() → a{sv}`,
-`GetMode() → s`, `RequestMode(s)`, signals `ModeChanged(s)`, `StateChanged(a{sv})`, errors
-`org.pocketos.Core1.Error.{InvalidMode,NotReady}`. State keys: `version`, `protocol`,
-`mode`, `ready`, `revision`.
+Phoc cannot minimise, so "Home" means showing the Home surface above the windows. Tapping
+an app activates its existing window (matched by app_id = desktop ID or
+`StartupWMClass`) or launches it through Core. Details:
+[ADR-0004](../decisions/0004-shell-ui-architecture.md),
+[ADR-0005](../decisions/0005-applications-and-window-management.md).
 
-## Session lifecycle
+## State ownership
 
-| Action | Mechanism |
+| Owner | State |
 |---|---|
-| Start | `scripts/session.sh start` → `rc-service pocket-session start` |
-| Stop | `scripts/session.sh stop` → `loginctl terminate-session`. Supervisors stop children, the bus ends, VT → tty1 |
-| Restart shell / core only | `scripts/session.sh shell|core restart` → `pocket-ctl restart …` |
-| Hold a component stopped | `pocket-ctl stop core` (e.g. to test the UI's disconnected state), `pocket-ctl start core` |
+| Pocket Core | mode (`handheld`/`dock`), application catalog, launches |
+| Compositor | windows, activation, output power, transform |
+| System services | battery, network, Bluetooth, backlight, accelerometer, OSK visibility |
+| Shell (UI) | home visibility/page, open panel, rotation mode, toasts |
+
+Nothing owned by the system or the compositor is mirrored into Core. UI state is
+transient (reset by a shell restart).
+
+## UI/Core separation and boundaries
+
+1. `pocket-core`, `pocket-ipc` and `pocket-platform` depend on nothing UI- or
+   transport-specific. `pocketd` is the only Rust code that knows D-Bus.
+2. QML reaches Core only through `Pocket.Core`, and system/compositor interfaces only
+   through Quickshell services (`services/`) or `Pocket.Platform`. No QML runs a process.
+3. Quickshell-specific code is limited to `shell.qml`, `surfaces/` and `services/`.
+   `state/`, `features/`, `components/` and `theme/` are plain Qt Quick.
+4. Requests → validation → state change → signals. Clients never assume success: the
+   mode label follows `StateChanged`, launches are confirmed by `Launch` replies,
+   `AppExited` and the compositor's toplevel list.
+
+Contract summary (ADR-0002): `org.pocketos.Core1` (`GetVersion`, `GetState`, `GetMode`,
+`RequestMode`, `ModeChanged`, `StateChanged`) and, since 1.1, `org.pocketos.Core1.Apps`
+on `/org/pocketos/Core1/Apps` (`ListApps`, `Launch`, `Reload`, `AppsChanged`,
+`AppExited`). Errors: `org.pocketos.Core1.Error.{InvalidMode,NotReady,UnknownApp,LaunchFailed}`.
+
+## Display, power key, rotation, security
+
+- Power key short press: the shell grabs `XF86PowerOff` (phosh_private) and toggles
+  wlr-output-power. Phoc ignores touch while the panel is off. elogind keeps
+  `HandlePowerKey=ignore`, so a press never powers the phone off.
+- Rotation: Portrait / Landscape / Auto (iio-sensor-proxy) → wlr-output-management
+  transform. Phoc remaps touch.
+- **There is no lock screen.** Phoc 0.59 lacks `ext-session-lock-v1`. Display-off is
+  power management, not security (ADR-0005).
 
 ## Error handling and recovery
 
-- Components: the supervisor restarts after unrequested exits with a 1, 2, 3… s delay,
-  and gives up after 5 exits within a sliding 60 s window. It keeps
-  `~/.local/state/pocket-os/<name>-gave-up.log` and waits for `pocket-ctl start <name>`.
-  No reboot is used as recovery.
-- UI ↔ core: `CoreClient` shows Connecting/Connected/Disconnected. It follows the
-  bus-name owner (no polling while the core is absent), re-reads state on every new
-  owner, and backs off (1 s → 30 s) only for transport errors. Invalid commands return
-  typed D-Bus errors that the UI logs.
-- Core: rejected commands leave state untouched. `pocketd` exits non-zero on startup
-  failure (3 = name already owned) and exits 0 after releasing its name on SIGTERM.
-- Diagnostics use stable line prefixes in `session.log`: `pocket.session:`,
-  `pocket.supervise:`, `pocketd`, `pocket.core.client`, `pocket.shell.diag: event=…`.
-  Fetch them with `scripts/logs.sh`.
-- The graphical session never starts at boot during development. SSH (USB network) is
-  independent of it, and `scripts/session.sh stop` always returns to the tty1 console.
-- Power key: a short press is ignored (elogind drop-in, development policy). A long
-  hardware reset still works.
-
-## Handheld and Dock modes
-
-`Mode` (`handheld` | `dock`) is owned by the core. In Stage 1 it is a logical mode only:
-the UI displays it and can request a switch. Selecting a surface composition per mode
-(the real Dock Mode UI) is Stage 2+. Layouts respond to size, not to a fixed orientation.
+- Supervisors restart core/shell/osk with growing delays and give up after 5 exits in
+  60 s (`pocket-ctl start <name>` resumes).
+- The shell survives Core loss: the catalog stays visible (marked stale), launching
+  reports "Pocket Core is not connected", and everything resynchronises on a new owner.
+- Launch failures (unknown app, spawn error, early non-zero exit, no window within 20 s)
+  become toasts. Diagnostics are `pocket.shell.diag: event=…` lines in `session.log`.
 
 ## Extension points
 
-- New core state: add a key to the state dictionary (protocol minor bump), and a
-  command plus event in `pocket-core`.
-- New domain (settings, notifications…): a new interface/object under
-  `/org/pocketos/Core1/…` served by the same `pocketd`, mirrored by a new QML type in the
-  bridge module.
-- System integration: a `pocket-platform` adapter behind a core-owned trait, added only
-  when a feature needs it. Values owned by system services (battery, network) are not
-  mirrored into core state.
-- New UI: a directory under `apps/shell/features/`, composed by `surfaces/`.
+- New UI: a feature view in `features/` + a surface in `surfaces/` (or a page in Home).
+  Shared state and actions go in `state/Shell.qml`.
+- New system integration: prefer a Quickshell service adapter in `services/`. If none
+  exists, add a `Pocket.Platform` type (shell-side, compositor/D-Bus) or a
+  `pocket-platform` adapter served by `pocketd` (authoritative actions).
+- New Core domain: a new object under `/org/pocketos/Core1/…` (minor protocol bump).
 
-There is no plugin loading, persistence layer or second daemon. Each one needs an ADR.
+There is no persistence layer, plugin loading or second daemon. Each would need an ADR.

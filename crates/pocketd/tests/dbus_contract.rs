@@ -28,6 +28,21 @@ trait Core1 {
     fn state_changed(&self, state: HashMap<String, OwnedVariant>) -> zbus::Result<()>;
 }
 
+#[proxy(
+    interface = "org.pocketos.Core1.Apps",
+    default_service = "org.pocketos.Core1",
+    default_path = "/org/pocketos/Core1/Apps"
+)]
+trait Apps {
+    fn list_apps(&self) -> zbus::Result<Vec<HashMap<String, OwnedVariant>>>;
+    fn launch(&self, id: &str) -> zbus::Result<u32>;
+    fn reload(&self) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn apps_changed(&self) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn app_exited(&self, id: String, pid: u32, success: bool, detail: String) -> zbus::Result<()>;
+}
+
 const WAIT: Duration = Duration::from_secs(5);
 
 /// A private session bus, killed on drop.
@@ -56,9 +71,14 @@ impl Bus {
     }
 
     fn spawn_core(&self) -> Child {
+        self.spawn_core_with(&[])
+    }
+
+    fn spawn_core_with(&self, env: &[(&str, &str)]) -> Child {
         // POCKETD_BIN: run a cross-built test binary on the device against a deployed pocketd.
         let bin = std::env::var("POCKETD_BIN").unwrap_or(env!("CARGO_BIN_EXE_pocketd").into());
         Command::new(bin)
+            .envs(env.iter().copied())
             .env("DBUS_SESSION_BUS_ADDRESS", &self.address)
             .env("POCKETD_LOG", "debug")
             .spawn()
@@ -138,10 +158,10 @@ async fn contract_state_signals_errors_and_restart() {
     // Initial state.
     let (version, major, minor) = proxy.get_version().await.unwrap();
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
-    assert_eq!((major, minor), (1, 0));
+    assert_eq!((major, minor), (1, 1));
     let state = proxy.get_state().await.unwrap();
     assert_eq!(get::<String>(&state, "mode"), "handheld");
-    assert_eq!(get::<String>(&state, "protocol"), "1.0");
+    assert_eq!(get::<String>(&state, "protocol"), "1.1");
     assert!(get::<bool>(&state, "ready"));
     let rev0: u64 = get(&state, "revision");
     assert_eq!(proxy.get_mode().await.unwrap(), "handheld");
@@ -198,6 +218,129 @@ async fn contract_state_signals_errors_and_restart() {
     let mut core = bus.spawn_core();
     wait_ready(&conn).await;
     assert_eq!(proxy.get_mode().await.unwrap(), "handheld");
+    sigterm(&core);
+    assert!(wait_exit(&mut core).success());
+}
+
+/// A temporary XDG data tree: `<root>/home/applications`, `<root>/system/applications`.
+struct DataDirs(std::path::PathBuf);
+
+impl DataDirs {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("pocketd-contract-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in ["home/applications", "system/applications"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        DataDirs(root)
+    }
+    fn path(&self, rel: &str) -> String {
+        self.0.join(rel).to_string_lossy().into_owned()
+    }
+    fn write(&self, rel: &str, body: &str) {
+        let tmp = self.0.join(format!("{rel}.tmp"));
+        std::fs::write(&tmp, body).unwrap();
+        std::fs::rename(tmp, self.0.join(rel)).unwrap();
+    }
+}
+
+impl Drop for DataDirs {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn contract_apps_catalog_launch_and_exit() {
+    let data = DataDirs::new();
+    data.write(
+        "system/applications/test.fails.desktop",
+        "[Desktop Entry]\nType=Application\nName=Fails\nExec=sh -c \"exit 3\"\n",
+    );
+    data.write(
+        "system/applications/test.ok.desktop",
+        "[Desktop Entry]\nType=Application\nName=Alright\nIcon=/nonexistent.png\n\
+         StartupWMClass=ok-app\nCategories=Utility;\nExec=true\n",
+    );
+    data.write(
+        "system/applications/test.hidden.desktop",
+        "[Desktop Entry]\nType=Application\nName=Hidden\nNoDisplay=true\nExec=true\n",
+    );
+    let bus = Bus::start();
+    let home = data.path("home");
+    let system = data.path("system");
+    let mut core = bus.spawn_core_with(&[
+        ("XDG_DATA_HOME", home.as_str()),
+        ("XDG_DATA_DIRS", system.as_str()),
+        ("XDG_CURRENT_DESKTOP", "Pocket"),
+    ]);
+    let conn = bus.client().await;
+    wait_ready(&conn).await;
+    let apps = AppsProxy::new(&conn).await.unwrap();
+
+    // Catalog: visible entries only, sorted by name, documented keys.
+    let list = apps.list_apps().await.unwrap();
+    let ids: Vec<String> = list.iter().map(|a| get(a, "id")).collect();
+    assert_eq!(ids, ["test.ok", "test.fails"]);
+    let ok = &list[0];
+    assert_eq!(get::<String>(ok, "name"), "Alright");
+    assert_eq!(get::<String>(ok, "icon_path"), ""); // missing file: not resolved
+    assert_eq!(get::<String>(ok, "icon_name"), "/nonexistent.png");
+    assert_eq!(get::<String>(ok, "startup_wm_class"), "ok-app");
+    assert_eq!(get::<Vec<String>>(ok, "categories"), ["Utility"]);
+
+    // Launch + exit reporting (failure is visible to clients).
+    let mut exits = apps.receive_app_exited().await.unwrap();
+    let pid = apps.launch("test.fails").await.unwrap();
+    assert!(pid > 0);
+    let sig = timeout(WAIT, exits.next()).await.unwrap().unwrap();
+    let a = sig.args().unwrap();
+    assert_eq!(
+        (a.id.as_str(), a.pid, a.success),
+        ("test.fails", pid, false)
+    );
+    assert_eq!(a.detail, "status=3");
+    let pid = apps.launch("test.ok").await.unwrap();
+    let sig = timeout(WAIT, exits.next()).await.unwrap().unwrap();
+    let a = sig.args().unwrap();
+    assert_eq!(
+        (a.pid, a.success, a.detail.as_str()),
+        (pid, true, "status=0")
+    );
+
+    // Unknown and hidden apps are rejected with a typed error.
+    for id in ["nope", "test.hidden"] {
+        match apps.launch(id).await.unwrap_err() {
+            zbus::Error::MethodError(name, _, _) => {
+                assert_eq!(name.as_str(), "org.pocketos.Core1.Error.UnknownApp")
+            }
+            other => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    // A new desktop file is picked up without polling (inotify) and announced.
+    let mut changes = apps.receive_apps_changed().await.unwrap();
+    data.write(
+        "system/applications/test.new.desktop",
+        "[Desktop Entry]\nType=Application\nName=Brand New\nExec=true\n",
+    );
+    timeout(WAIT, changes.next()).await.unwrap().unwrap();
+    let ids: Vec<String> = apps
+        .list_apps()
+        .await
+        .unwrap()
+        .iter()
+        .map(|a| get(a, "id"))
+        .collect();
+    assert_eq!(ids, ["test.ok", "test.new", "test.fails"]);
+    // Reload with nothing changed: success, no signal.
+    apps.reload().await.unwrap();
+    assert!(
+        timeout(Duration::from_millis(300), changes.next())
+            .await
+            .is_err()
+    );
+
     sigterm(&core);
     assert!(wait_exit(&mut core).success());
 }

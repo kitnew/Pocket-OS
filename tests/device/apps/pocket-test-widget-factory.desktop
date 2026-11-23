@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Pocket OS device test fixture (installed to ~/.local/share/applications by
+# tests/device/stage2-e2e.sh): makes the GTK 3 widget factory, which Alpine ships with
+# NoDisplay=true, visible in the launcher. It has text entries for OSK tests.
+Type=Application
+Name=GTK Widget Factory
+Comment=GTK 3 widgets (text entry test)
+Icon=org.gtk.WidgetFactory
+Exec=gtk3-widget-factory
+StartupWMClass=gtk3-widget-factory
+Categories=Development;

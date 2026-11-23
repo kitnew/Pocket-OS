@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/pocket-ipc", "crates/pocket-core", "crates/pocketd"]
+members = ["crates/pocket-ipc", "crates/pocket-core", "crates/pocket-platform", "crates/pocketd"]
 
 [workspace.package]
 version = "0.1.0"

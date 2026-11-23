@@ -54,7 +54,7 @@ cmake -S "$b/quickshell-src" -B "$b/quickshell-build" -G Ninja \
 	-DGIT_REVISION="$QS_REF" \
 	-DCRASH_HANDLER=OFF -DX11=OFF -DI3=OFF -DHYPRLAND=OFF \
 	-DSERVICE_PIPEWIRE=OFF -DSERVICE_PAM=OFF -DSERVICE_POLKIT=OFF -DSERVICE_GREETD=OFF \
-	-DBLUETOOTH=OFF -DNETWORK=OFF
+	-DBLUETOOTH=ON -DNETWORK=ON
 nice cmake --build "$b/quickshell-build" -j "$JOBS"
 rm -rf "$prefix"
 cmake --install "$b/quickshell-build" >/dev/null

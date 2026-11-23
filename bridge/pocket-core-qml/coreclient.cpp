@@ -56,6 +56,7 @@ void CoreClient::connectBus()
         QDBusConnection::disconnectFromBus(m_busName);
     m_busName = QStringLiteral("pocket-core-client-%1").arg(++m_busAttempt);
     m_bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, m_busName);
+    emit busChanged();
     if (!m_bus.isConnected()) {
         setError(QStringLiteral("session bus unavailable: ") + m_bus.lastError().message());
         setStatus(Disconnected);

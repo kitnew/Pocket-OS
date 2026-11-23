@@ -1,0 +1,15 @@
+[package]
+name = "pocket-platform"
+description = "Pocket OS platform adapters: desktop application catalog and launching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+freedesktop-desktop-entry = { version = "0.8", default-features = false }
+freedesktop-icons = "0.4"
+
+[lints]
+workspace = true

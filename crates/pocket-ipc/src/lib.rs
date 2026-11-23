@@ -11,7 +11,9 @@ use std::str::FromStr;
 
 /// Version of the Pocket IPC contract. The major is part of the D-Bus names (`Core1`);
 /// bump it (and the names) on any incompatible change, bump the minor on additions.
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
+/// History: 1.0 core state and modes (Stage 1); 1.1 adds the application object
+/// [`dbus::apps`] (Stage 2).
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 1 };
 
 /// D-Bus names of the core service (session bus).
 pub mod dbus {
@@ -38,6 +40,43 @@ pub mod dbus {
         /// `t`: state revision; strictly increases with every change within one core
         /// process. Restarts from 1 when the core restarts (a new bus-name owner).
         pub const REVISION: &str = "revision";
+    }
+
+    /// Installed applications and launching (since protocol 1.1). Served by `pocketd`
+    /// on the same bus name as the core object.
+    ///
+    /// - `ListApps() -> aa{sv}`: the catalog, sorted by name (keys: [`app_key`]).
+    /// - `Launch(s id) -> u pid`: starts the application; `pid` is 0 when it was
+    ///   activated over D-Bus. Errors: `…Error.UnknownApp`, `…Error.LaunchFailed`.
+    /// - `Reload()`: rescans the application directories now.
+    /// - signal `AppsChanged()`: the catalog changed; call `ListApps` again.
+    /// - signal `AppExited(s id, u pid, b success, s detail)`: a process started by
+    ///   `Launch` ended (`detail`: `status=N` or `signal=N`).
+    pub mod apps {
+        pub const OBJECT_PATH: &str = "/org/pocketos/Core1/Apps";
+        pub const INTERFACE: &str = "org.pocketos.Core1.Apps";
+
+        /// Keys of one application dictionary. Clients must ignore unknown keys.
+        pub mod app_key {
+            /// `s`: desktop-file ID without `.desktop`.
+            pub const ID: &str = "id";
+            /// `s`: localised name.
+            pub const NAME: &str = "name";
+            /// `s`: localised generic name (may be empty).
+            pub const GENERIC_NAME: &str = "generic_name";
+            /// `s`: localised comment (may be empty).
+            pub const COMMENT: &str = "comment";
+            /// `s`: `Icon` value as written (may be empty).
+            pub const ICON_NAME: &str = "icon_name";
+            /// `s`: absolute path of the resolved icon file, empty if none was found.
+            pub const ICON_PATH: &str = "icon_path";
+            /// `as`: categories.
+            pub const CATEGORIES: &str = "categories";
+            /// `as`: localised keywords.
+            pub const KEYWORDS: &str = "keywords";
+            /// `s`: `StartupWMClass` (may be empty). Window app_ids match it or `id`.
+            pub const STARTUP_WM_CLASS: &str = "startup_wm_class";
+        }
     }
 }
 
@@ -140,7 +179,7 @@ mod tests {
         assert!(v(1, 0).is_compatible_with(v(1, 2)));
         assert!(!v(1, 2).is_compatible_with(v(1, 0)));
         assert!(!v(2, 0).is_compatible_with(v(1, 9)));
-        assert_eq!(PROTOCOL_VERSION.to_string(), "1.0");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "1.1");
     }
 
     #[test]

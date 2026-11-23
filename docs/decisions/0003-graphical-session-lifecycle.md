@@ -37,6 +37,10 @@ rc-service pocket-session (root, manual)
                          └─ quickshell (Pocket Shell + Pocket.Core bridge)
 ```
 
+- **Stage 2 addition:** a third supervised component, `osk` (`pocket-supervise osk
+  pocket-osk` → squeekboard), started by the session root once Phoc's socket exists and
+  stopped before Phoc. `pocketd` (only it) also gets `WAYLAND_DISPLAY`, because it
+  launches applications. Phoc must not inherit it, or wlroots would start nested.
 - **Phoc** stays the `-E` parent of the shell, but its `-E` child is the shell
   *supervisor*, which never exits on a shell crash. Phoc therefore outlives the shell.
 - **Core** is a sibling of Phoc under the session root, so it depends on neither Phoc

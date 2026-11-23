@@ -10,6 +10,8 @@ section "GPU/EGL";  EGL_PLATFORM=surfaceless eglinfo -p surfaceless 2>/dev/null 
 section "Input";    grep -E "^N: Name" /proc/bus/input/devices
 section "Seats";    loginctl list-seats; loginctl list-sessions; echo "active VT: $(cat /sys/class/tty/tty0/active)"
 section "Services"; rc-status default | grep -E "\[" ; rc-service pocket-session status 2>&1 | head -1
-section "Packages"; apk info -v 2>/dev/null | grep -E "^(phoc|qt6-qtbase|qt6-qtdeclarative|qt6-qtwayland|layer-shell-qt|mesa|linux-postmarketos)-[0-9]"
+section "Packages"; apk info -v 2>/dev/null | grep -E "^(phoc|qt6-qtbase|qt6-qtdeclarative|qt6-qtwayland|layer-shell-qt|mesa|linux-postmarketos|squeekboard|upower|iio-sensor-proxy|bluez|polkit-elogind-libs|polkit-noelogind-libs)-[0-9]"
+section "Stage 2 services"; for s in iio-sensor-proxy bluetooth networkmanager; do printf '%s: ' $s; rc-service $s status 2>&1 | head -1; done
+section "Audio";    cat /proc/asound/cards
 section "Quickshell"; ~/pocket-os/opt/quickshell/bin/quickshell --version 2>/dev/null || echo "not built"
 REMOTE

@@ -50,13 +50,23 @@ All values below were **read from the device** on 2026-11-22 (commands in
 | `pm8941_resin` (volume −), `gpio-keys` (volume +) | event1, event2 | |
 | `spmi_haptics` | event4 | Vibrator |
 | Headset jack | event5 | |
-| IIO sensors | `qcom-smgr-accel/gyro/mag/prox` | Present via sensor manager; physical auto-rotation not attempted in Stage 0 |
+| IIO sensors | `qcom-smgr-accel/gyro/mag/prox` | Buffer-only IIO devices (250 Hz, mount matrix present). iio-sensor-proxy 3.9 reports `AccelerometerOrientation` correctly (Stage 2, physically verified: `right-up`, `left-up`, `normal`, `bottom-up`). No ambient light; the proximity sensor is not exposed by the proxy |
+
+## Audio, power supply, radios (Stage 2)
+
+| Item | Observed |
+|---|---|
+| Sound card | `0 [X7]: sdm660 - Xiaomi Redmi Note 7` registers **some time after boot** (ADSP firmware). Directly after boot `aplay -l` reported no card. No sound server runs in the Pocket session |
+| Battery | `qcom-battery` (+ `pm660-charger`), read through UPower 1.91 |
+| Backlight | `/sys/class/backlight/backlight` root-owned. Set without root through logind `Session.SetBrightness` from the active seat session |
+| Wi-Fi / Bluetooth | `wlan0` (ath10k) via NetworkManager. `hci0` via BlueZ 5.87. Both rfkill-unblocked |
+| polkit | Shipped as `polkit-noelogind-libs`: no active-session detection, so `allow_active` actions were refused. Stage 2 installs `polkit-elogind-libs` |
 
 ## Known device limitations relevant to Pocket OS
 
 1. No internet unless Wi-Fi is configured; Stage 0 used a host-side proxy over the USB link
    (`scripts/device-online.sh`).
-2. Power key powers off immediately (elogind default). The shell must take a
-   `handle-power-key` inhibitor before Stage 1 user testing.
+2. Power key powers off immediately with the elogind default. Pocket installs
+   `HandlePowerKey=ignore`, and the shell handles the short press (display on/off).
 3. RTC is not writable; clock is wrong after cold boot without network.
 4. No permanent graphical session is configured; console getty on tty1 remains the default.

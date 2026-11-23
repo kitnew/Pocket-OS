@@ -57,6 +57,10 @@ public:
     // Asks the core to switch mode. Result: requestFinished(); state: modeChanged().
     Q_INVOKABLE void requestMode(const QString &mode);
 
+    // For other clients of the same core (AppCatalog): the connection this client uses.
+    // It changes only after a transport error (busChanged()).
+    QDBusConnection bus() const { return m_bus; }
+
 signals:
     void statusChanged();
     void modeChanged();
@@ -64,6 +68,7 @@ signals:
     void lastErrorChanged();
     void requestPendingChanged();
     void requestFinished(const QString &mode, bool ok, const QString &error);
+    void busChanged();
 
 private slots:
     void onOwnerChanged(const QString &name, const QString &oldOwner, const QString &newOwner);

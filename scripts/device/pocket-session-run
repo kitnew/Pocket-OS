@@ -3,8 +3,9 @@
 #
 #   pocket-session-run
 #   ├── pocket-supervise core  pocketd            (Core: independent of Phoc and the shell)
-#   └── phoc -E "pocket-supervise shell pocket-shell"
-#                            └── quickshell        (Shell: restarted without restarting Phoc)
+#   ├── phoc -E "pocket-supervise shell pocket-shell"
+#   │                        └── quickshell        (Shell: restarted without restarting Phoc)
+#   └── pocket-supervise osk   pocket-osk          (on-screen keyboard, once Phoc listens)
 #
 # The session lasts as long as Phoc. On SIGTERM/SIGINT/SIGHUP (session stop), or when
 # Phoc exits, everything is stopped and this script exits; dbus-run-session then ends the
@@ -26,22 +27,40 @@ EOF
 
 phoc_pid=
 core_sup=
+osk_sup=
 stopping=
 stop_all() {
 	stopping=1
+	[ -n "$osk_sup" ] && kill -TERM "$osk_sup" 2>/dev/null
 	[ -n "$phoc_pid" ] && kill -TERM "$phoc_pid" 2>/dev/null
 	[ -n "$core_sup" ] && kill -TERM "$core_sup" 2>/dev/null
 }
 trap 'log "event=stopping reason=signal"; stop_all' TERM INT HUP
 
+# The user's application directory exists so the core can watch it for new entries.
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 log "event=starting bus=$DBUS_SESSION_BUS_ADDRESS wayland=$sock"
-"$base/bin/pocket-supervise" core "$base/bin/pocketd" &
+# The core launches applications, so it gets the Wayland socket name. Phoc must NOT
+# inherit WAYLAND_DISPLAY (wlroots would start as a nested client).
+WAYLAND_DISPLAY="$sock" "$base/bin/pocket-supervise" core "$base/bin/pocketd" &
 core_sup=$!
 # shellcheck disable=SC2086 # POCKET_PHOC_VERBOSE is a flag
 phoc ${POCKET_PHOC_VERBOSE:+-v} --socket "$sock" -C "$base/config/phoc.ini" \
 	-E "$base/bin/pocket-supervise shell $client" &
 phoc_pid=$!
 log "event=started phoc=$phoc_pid core_supervisor=$core_sup"
+
+# Wayland clients that are not the shell start once Phoc's socket exists (max ~10 s).
+i=0
+while [ ! -S "$XDG_RUNTIME_DIR/$sock" ] && [ $i -lt 100 ] && kill -0 "$phoc_pid" 2>/dev/null; do
+	sleep 0.1
+	i=$((i + 1))
+done
+if [ -z "${POCKET_NO_OSK:-}" ] && [ -S "$XDG_RUNTIME_DIR/$sock" ]; then
+	WAYLAND_DISPLAY="$sock" "$base/bin/pocket-supervise" osk "$base/bin/pocket-osk" &
+	osk_sup=$!
+	log "event=osk.started supervisor=$osk_sup"
+fi
 
 # `wait` returns early when a trapped signal arrives; keep waiting until Phoc is gone.
 wait "$phoc_pid"
@@ -52,6 +71,8 @@ while kill -0 "$phoc_pid" 2>/dev/null; do
 done
 log "event=phoc.exited status=$status"
 [ -z "$stopping" ] && stop_all
-while kill -0 "$core_sup" 2>/dev/null; do wait "$core_sup"; done
+for sup in $osk_sup $core_sup; do
+	while kill -0 "$sup" 2>/dev/null; do wait "$sup"; done
+done
 rm -rf "$run"
 log "event=stopped"

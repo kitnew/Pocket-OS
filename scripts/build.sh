@@ -3,8 +3,9 @@
 #   scripts/build.sh            both
 #   scripts/build.sh rust       pocketd, cross-compiled on the host (static aarch64-musl,
 #                               rust-lld; see .cargo/config.toml)
-#   scripts/build.sh bridge     Pocket.Core QML module (C++/QtDBus), built natively on the
-#                               device against the device's Qt, installed to ~/pocket-os/qml
+#   scripts/build.sh bridge     Pocket.Core (QtDBus client of pocketd) and Pocket.Platform
+#                               (Wayland/D-Bus system adapters) QML modules, built natively
+#                               on the device against the device's Qt, into ~/pocket-os/qml
 # Then: scripts/deploy.sh
 set -eu
 HOST="${POCKET_DEVICE:-lavender}"
@@ -30,15 +31,21 @@ if [ "$what" = all ] || [ "$what" = bridge ]; then
 		echo "  ssh -t $HOST \"sudo date -u -s @\$(date +%s)\"" >&2
 		[ "${POCKET_IGNORE_CLOCK:-}" = 1 ] || exit 1
 	fi
-	ssh "$HOST" 'rm -rf ~/pocket-os-build/pocket-core-qml-src && mkdir -p ~/pocket-os-build/pocket-core-qml-src'
-	tar -C bridge/pocket-core-qml -c . | ssh "$HOST" 'tar -C ~/pocket-os-build/pocket-core-qml-src -xm'  # -m: clock skew
+	for m in pocket-core-qml pocket-platform-qml; do
+		ssh "$HOST" "rm -rf ~/pocket-os-build/$m-src && mkdir -p ~/pocket-os-build/$m-src"
+		tar -C "bridge/$m" -c . | ssh "$HOST" "tar -C ~/pocket-os-build/$m-src -xm" # -m: clock skew
+	done
 	ssh "$HOST" sh -eu <<'REMOTE'
 b=~/pocket-os-build
-cmake -S "$b/pocket-core-qml-src" -B "$b/pocket-core-qml-build" -G Ninja \
-	-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/pocket-os/qml" >/dev/null
-cmake --build "$b/pocket-core-qml-build"
-rm -rf ~/pocket-os/qml/Pocket/Core
-cmake --install "$b/pocket-core-qml-build" >/dev/null
-ls ~/pocket-os/qml/Pocket/Core
+for m in pocket-core-qml pocket-platform-qml; do
+	cmake -S "$b/$m-src" -B "$b/$m-build" -G Ninja \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/pocket-os/qml" >/dev/null
+	cmake --build "$b/$m-build"
+done
+rm -rf ~/pocket-os/qml/Pocket/Core ~/pocket-os/qml/Pocket/Platform
+for m in pocket-core-qml pocket-platform-qml; do
+	cmake --install "$b/$m-build" >/dev/null
+done
+ls ~/pocket-os/qml/Pocket/*
 REMOTE
 fi

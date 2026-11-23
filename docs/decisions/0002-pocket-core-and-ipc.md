@@ -38,7 +38,7 @@ and how QML talks to it.
 | Bus name | `org.pocketos.Core1` |
 | Object path | `/org/pocketos/Core1` |
 | Interface | `org.pocketos.Core1` |
-| Protocol version | `1.0` (major is in the names; minor bumps only add) |
+| Protocol version | `1.1` (major is in the names; minor bumps only add). 1.0 = Stage 1; 1.1 adds the Apps object below |
 
 | Member | Signature | Semantics |
 |---|---|---|
@@ -50,11 +50,28 @@ and how QML talks to it.
 | signal `StateChanged` | `(a{sv} state)` | Full new state, after every change (including becoming ready) |
 
 State keys (`pocket_ipc::dbus::state_key`; clients ignore unknown keys):
-`version` (s), `protocol` (s, `"1.0"`), `mode` (s), `ready` (b), `revision` (t — strictly
+`version` (s), `protocol` (s, `"1.1"`), `mode` (s), `ready` (b), `revision` (t — strictly
 increasing per core process, restarts when the core restarts).
 
 Errors: `org.pocketos.Core1.Error.InvalidMode` (unknown mode name; names are exact and
 case-sensitive), `org.pocketos.Core1.Error.NotReady` (startup not complete).
+
+### Since 1.1: `org.pocketos.Core1.Apps` on `/org/pocketos/Core1/Apps` (Stage 2)
+
+Same bus name, its own object (the extension point foreseen above). Implementation:
+`crates/pocket-platform` (catalog) + `crates/pocketd/src/apps.rs` (D-Bus). Decision
+record: ADR-0005.
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `ListApps()` | `→ aa{sv}` | Visible installed applications sorted by name. Keys (`pocket_ipc::dbus::apps::app_key`): `id`, `name`, `generic_name`, `comment`, `icon_name`, `icon_path` (resolved file or empty), `categories` (as), `keywords` (as), `startup_wm_class` |
+| `Launch(s id)` | `→ u pid` | Starts the app (D-Bus activation first for `DBusActivatable`, then pid 0). Errors `…Error.UnknownApp`, `…Error.LaunchFailed` |
+| `Reload()` | `→ ()` | Rescans now. `AppsChanged` only if something changed |
+| signal `AppsChanged` | `()` | Catalog changed (inotify on the application directories, debounced) |
+| signal `AppExited` | `(s id, u pid, b success, s detail)` | A launched process ended (`status=N` / `signal=N`) |
+
+The QML side is `AppCatalog` (list model) + `AppFilter` (search) in `Pocket.Core`. It
+uses the `CoreClient`'s connection, so a shell keeps one logical core link.
 
 Why this shape: `a{sv}` maps directly to `QVariantMap` in QtDBus and to a JS object in
 QML, so adding a key later needs no client change; plain methods + signals avoid

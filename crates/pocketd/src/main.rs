@@ -1,6 +1,7 @@
 //! `pocketd`: the Pocket Core daemon.
 //!
-//! Lifecycle: connect to the session bus → export `/org/pocketos/Core1` → own
+//! Lifecycle: connect to the session bus → export `/org/pocketos/Core1` and the
+//! application catalog `/org/pocketos/Core1/Apps` → own
 //! `org.pocketos.Core1` (fail fast if another core owns it) → mark ready (emits
 //! `StateChanged`) → serve until SIGTERM/SIGINT, loss of the name, or bus disconnect →
 //! release the name and exit. State is in memory only; a restarted core starts fresh and
@@ -8,11 +9,13 @@
 //!
 //! Logging: `POCKETD_LOG` (tracing env-filter syntax, default `info`) to stderr.
 
+mod apps;
 mod service;
 
 use std::process::ExitCode;
 use std::time::Duration;
 
+use apps::AppsService;
 use futures_util::StreamExt;
 use pocket_ipc::dbus::{BUS_NAME, OBJECT_PATH};
 use service::CoreService;
@@ -69,8 +72,11 @@ async fn run() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    let apps = AppsService::new();
+    let app_dirs = apps.dirs();
     let conn = match connection::Builder::session()
         .serve_at(OBJECT_PATH, CoreService::new())
+        .serve_at(pocket_ipc::dbus::apps::OBJECT_PATH, apps)
         .build()
         .await
     {
@@ -119,6 +125,7 @@ async fn run() -> ExitCode {
         error!(error = %e, "cannot publish ready state");
         return ExitCode::FAILURE;
     }
+    tokio::spawn(apps::watch(conn.clone(), app_dirs));
     info!(name = BUS_NAME, path = OBJECT_PATH, unique = ?conn.unique_name().map(|n| n.as_str()), "pocketd ready");
 
     let stop = tokio::select! {

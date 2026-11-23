@@ -1,12 +1,18 @@
 #!/bin/sh
 # Control the components of a running Pocket session (as the session user, e.g. over SSH).
 #   pocket-ctl status                 session, supervisors, components, core state
-#   pocket-ctl restart core|shell     restart one component (not counted as a failure)
-#   pocket-ctl stop core|shell        stop and hold it stopped
-#   pocket-ctl start core|shell       release a hold / a gave-up state and start it
-#   pocket-ctl kill core|shell SIG    send SIG to the component (fault injection: SEGV, KILL…)
+#   pocket-ctl restart COMPONENT      restart one component (not counted as a failure)
+#   pocket-ctl stop COMPONENT         stop and hold it stopped
+#   pocket-ctl start COMPONENT        release a hold / a gave-up state and start it
+#   pocket-ctl kill COMPONENT SIG     send SIG to the component (fault injection: SEGV, KILL…)
+#                                     COMPONENT: core | shell | osk
 #   pocket-ctl env                    print the session environment (DBus/Wayland) to source
 #   pocket-ctl core METHOD [ARGS]     call org.pocketos.Core1.METHOD (dbus-send; for tests)
+#   pocket-ctl apps METHOD [ARGS]     call org.pocketos.Core1.Apps.METHOD (ListApps, Launch, Reload)
+#   pocket-ctl ui FUNCTION [ARGS]     call the shell's IPC handler (state, home, page apps|switcher,
+#                                     open APP, activate APP, close APP, panel NAME|none,
+#                                     rotation portrait|landscape|auto, display true|false,
+#                                     brightness PERCENT)
 # Session start/stop itself is the OpenRC service: sudo rc-service pocket-session start|stop
 set -eu
 run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pocket-os"
@@ -16,8 +22,8 @@ need_session() {
 }
 component() {
 	case "${1:-}" in
-	core | shell) ;;
-	*) echo "component must be core or shell" >&2; exit 2 ;;
+	core | shell | osk) ;;
+	*) echo "component must be core, shell or osk" >&2; exit 2 ;;
 	esac
 }
 pid_of() { cat "$run/$1.pid" 2>/dev/null || true; }
@@ -27,7 +33,8 @@ case "${1:-}" in
 status)
 	need_session
 	echo "session pid $(cat "$run/session.pid")  $(grep -o "WAYLAND_DISPLAY='[^']*'" "$run/env")"
-	for c in core shell; do
+	for c in core shell osk; do
+		[ -f "$run/$c.supervisor.pid" ] || { printf '%-6s %s\n' "$c" "not started"; continue; }
 		state=running
 		[ -e "$run/$c.hold" ] && state=held
 		[ -e "$run/$c.failed" ] && state="gave-up ($(cat "$run/$c.failed"))"
@@ -81,8 +88,25 @@ core)
 	exec dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1 \
 		"org.pocketos.Core1.$m" "$@"
 	;;
+apps)
+	need_session
+	shift
+	m="${1:?method required}"
+	shift
+	. "$run/env"
+	exec dbus-send --session --print-reply --dest=org.pocketos.Core1 /org/pocketos/Core1/Apps \
+		"org.pocketos.Core1.Apps.$m" "$@"
+	;;
+ui)
+	need_session
+	shift
+	p=$(pid_of shell)
+	[ -n "$p" ] || { echo "shell is not running" >&2; exit 1; }
+	# pocket-shell exec's quickshell, so the supervised pid is quickshell's.
+	exec "$HOME/pocket-os/opt/quickshell/bin/quickshell" ipc --pid "$p" call pocket "$@"
+	;;
 *)
-	sed -n '2,10s/^# \{0,1\}//p' "$0" >&2
+	sed -n '2,16s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 	;;
 esac
